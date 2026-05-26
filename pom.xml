@@ -53,7 +53,7 @@
             <!--
               What: Main-Class manifest entry so the packaged jar is executable
                     via `java -jar target/folder-scanner-1.0-SNAPSHOT.jar`.
-              Why:  start.sh launches the program from the jar (not -cp out),
+              Why:  scripts/start.sh launches the program from the jar (not -cp out),
                     so the manifest must point at Main.
             -->
             <plugin>
@@ -71,7 +71,7 @@
               What: exec-maven-plugin so `mvn compile exec:java` runs Main.
               Why:  Maven has no `run` phase; without this plugin the only way to
                     invoke the program through Maven is hand-rolling a java command.
-                    The scan target defaults to ../.. to match start.sh; override
+                    The scan target defaults to ../.. to match scripts/start.sh; override
                     on the CLI with -Dexec.args="path" (e.g. -Dexec.args="./docs").
             -->
             <plugin>

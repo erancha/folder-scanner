@@ -58,7 +58,7 @@ public final class FolderScanner {
      *       the composition root owns the sizing decision (testability + tuning live with the
      *       caller that wires everything together). The skip-set is fully caller-supplied —
      *       build outputs, dependency caches, and per-app data folders that the duplicate
-     *       locator must not touch are listed by the user via start.sh --exclude rather than
+     *       locator must not touch are listed by the user via scripts/start.sh --exclude rather than
      *       hard-coded here, so the policy stays editable per-machine without a rebuild.
      */
     public FolderScanner(BlockingQueue<FileInfo> queue, int parallelism, FileInfoFactory factory,

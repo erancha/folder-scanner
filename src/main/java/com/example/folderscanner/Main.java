@@ -33,7 +33,7 @@ public final class Main {
 
     /**
      * What: bounded queue capacity, defaulting to 4096. Overridable via -Dqueuesize (set by
-     *       start.sh --queue-size).
+     *       scripts/start.sh --queue-size).
      * Why:  small enough that put() starts blocking quickly when consumers stall - that's the
      *       OOM defense; configurable so we can compare e.g. 4096 vs 8192 against both LBQ
      *       and ABQ.
@@ -42,7 +42,7 @@ public final class Main {
 
     /**
      * What: enables once-per-second stdout stats.
-     * Why:  -Dstat=true (set by start.sh --stat) makes it opt-in so normal runs stay quiet.
+     * Why:  -Dstat=true (set by scripts/start.sh --stat) makes it opt-in so normal runs stay quiet.
      */
     private static final boolean STAT = Boolean.getBoolean("stat");
 
@@ -69,13 +69,13 @@ public final class Main {
             System.exit(2);
         }
 
-        // -Dproducers / -Dconsumers (set by start.sh --producers / --consumers)
+        // -Dproducers / -Dconsumers (set by scripts/start.sh --producers / --consumers)
         // override the defaults. Defaults below come from the --combinations-q
         // benchmark on a ~1M-file IO-bound tree on /mnt/c (WSL): producers=100 +
         // consumers=48 was on the winning combination (352.4 s, lowest peak thread
         // count among the top 4 results within 0.6%). On small/fast trees, lower
         // values like producers=24 / consumers=16 may be faster - tune with
-        // ./start.sh --combinations for your workload.
+        // ./scripts/start.sh --combinations for your workload.
         int scannerParallelism = Integer.getInteger("producers", 100);
         int consumerThreads = Integer.getInteger("consumers", 48);
         if (scannerParallelism < 1 || consumerThreads < 1) {
@@ -83,7 +83,7 @@ public final class Main {
             System.exit(2);
         }
 
-        // -Dqueuetype (set by start.sh --queue-type) selects the BlockingQueue impl:
+        // -Dqueuetype (set by scripts/start.sh --queue-type) selects the BlockingQueue impl:
         // abq -> ArrayBlockingQueue (default): pre-allocated array, zero per-put
         //        allocation, single lock. Wins on long IO-bound scans where LBQ's
         //        ~280MB of per-put Node garbage triggers GC pauses (see
@@ -108,7 +108,7 @@ public final class Main {
         String consumerName = System.getProperty("consumer", "aggregate");
         String outPath     = System.getProperty("out", "");
         boolean hardDelete = Boolean.getBoolean("harddelete");
-        // -Dminsize (set by start.sh --min-size) filters small files out of the
+        // -Dminsize (set by scripts/start.sh --min-size) filters small files out of the
         // duplicate locator before bucketing. Parsed here at the boundary so
         // bad input fails fast with a single clean error.
         long minSizeBytes;
@@ -129,12 +129,12 @@ public final class Main {
                 yield null;
             }
         };
-        // -Dexclude (set by start.sh --exclude) is a comma-separated list of directory
+        // -Dexclude (set by scripts/start.sh --exclude) is a comma-separated list of directory
         // basenames to skip during the walk (e.g. node_modules,target,.mvn,.git). Parsed
         // here at the boundary so the FolderScanner stays a plain Set-consuming API.
         // Required: an empty list would walk every directory including .git ref files and
         // per-app caches, which the duplicate locator would then flag for deletion — almost
-        // always the wrong default. The policy lives in start.sh / README, not in Java.
+        // always the wrong default. The policy lives in scripts/start.sh / README, not in Java.
         Set<String> excludeDirs = parseExcludeDirs(System.getProperty("exclude", ""));
         if (excludeDirs.isEmpty()) {
             System.err.println("--exclude is required: pass a comma-separated list of directory basenames "

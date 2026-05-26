@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")"
+# Resolve project root (this script lives in scripts/), then cd there so every relative
+# path below — JAR, target, sibling scripts, default scan target — stays anchored to the
+# repo layout regardless of where the caller invoked us from.
+cd "$(dirname "$0")/.."
 
 FLAGS=""
 TARGET="../.."
@@ -18,7 +21,7 @@ MIN_SIZE_RAW=""      # raw value of --min-size=... ; forwarded to Java, parsed t
 EXCLUDE_RAW=""       # raw value of --exclude=... ; comma-separated dir basenames, forwarded to Java
 OUT_FLAG_RAW=""      # raw value of --out=... ; bash uses it for tee in aggregate mode,
                      # Java uses it for the script path in duplicates mode
-JAR="target/folder-scanner-1.0-SNAPSHOT.jar"  # produced by `./start.sh --build`; consumed by every run path below
+JAR="target/folder-scanner-1.0-SNAPSHOT.jar"  # produced by `./scripts/start.sh --build`; consumed by every run path below
 for arg in "$@"; do
     case "$arg" in
         --stat)
@@ -65,13 +68,13 @@ for arg in "$@"; do
             ERRORS_FILE="${arg#--errors=}" ;;
         -h|--help)
             cat <<EOF
-Usage: ./start.sh --build
-       ./start.sh --test
-       ./start.sh [--consumer=aggregate|duplicates] [--stat] [--no-types] [--producers=N] [--consumers=N]
+Usage: ./scripts/start.sh --build
+       ./scripts/start.sh --test
+       ./scripts/start.sh [--consumer=aggregate|duplicates] [--stat] [--no-types] [--producers=N] [--consumers=N]
                   [--queue-type=lbq|abq] [--queue-size=N] [--out=PATH] [--hard-delete] [--min-size=SIZE]
                   [--exclude=NAME1,NAME2,...] [path]
-       ./start.sh --combinations   [--queue-type=lbq|abq] [--queue-size=N] [--out=FILE] [--errors=FILE] [path]
-       ./start.sh --combinations-q [--out=FILE] [--errors=FILE] [path]
+       ./scripts/start.sh --combinations   [--queue-type=lbq|abq] [--queue-size=N] [--out=FILE] [--errors=FILE] [path]
+       ./scripts/start.sh --combinations-q [--out=FILE] [--errors=FILE] [path]
 
   --build         Run \`mvn -q clean package\` to (re)build the executable jar at \$JAR, then exit. All other
                   run modes load classes from this jar, so run this once after changing any .java file.
@@ -79,9 +82,10 @@ Usage: ./start.sh --build
                   harness only, jar required), or all (default when --test has no value: unit then e2e).
                   Unit covers the pure helpers (Format, SizeBucket, BinName, OutPathResolver,
                   ScriptWriter.shellQuote, Aggregator's extensionOf / classifyByDate). E2e drives
-                  start.sh end-to-end against a fixture tree built under \$TMPDIR, including the
-                  start.sh error-path branches the JUnit suite cannot reach. Does NOT rebuild the
-                  jar; pair with --build when the production code has changed since the last build.
+                  scripts/start.sh end-to-end against a fixture tree built under \$TMPDIR, including
+                  the scripts/start.sh error-path branches the JUnit suite cannot reach. Does NOT
+                  rebuild the jar; pair with --build when the production code has changed since
+                  the last build.
   --consumer=NAME Which consumer to run. NAME is aggregate (default) or duplicates. aggregate: the existing
                   by-extension / by-size / by-date tables. duplicates: scan for files with identical content
                   and emit a shell script that quarantines (or with --hard-delete deletes) the redundant
@@ -107,8 +111,8 @@ Usage: ./start.sh --build
                   used verbatim. If --out is omitted, no file is written (stdout only).
                   Duplicates mode: tells Java where to write remove-duplicates.sh. Same directory-vs-file
                   resolution; inside a directory the file name is always remove-duplicates.sh (overwrites on
-                  each run). Defaults to ./remove-duplicates.sh in cwd when omitted. Bash does NOT tee stdout
-                  in this mode.
+                  each run). Defaults to ./remove-duplicates.sh in the project root when omitted (start.sh
+                  cd's there before launching Java). Bash does NOT tee stdout in this mode.
   --stat          Print thread count, heap usage, and queue depth once per second during the scan (helpful
                   for watching backpressure in action).
   --no-types      Aggregate mode only. Skip the by-extension table in the printed result. The aggregation
@@ -148,7 +152,7 @@ EOF
         -*)
             # Catch typos like "-out=..." (one dash) so they don't silently become the target path.
             echo "Unknown flag: $arg" >&2
-            echo "Run ./start.sh --help for usage." >&2
+            echo "Run ./scripts/start.sh --help for usage." >&2
             exit 2 ;;
         *)
             TARGET="$arg" ;;
@@ -228,20 +232,20 @@ if [ -n "$TEST_MODE" ]; then
         e2e)
             if [ ! -f "$JAR" ]; then
                 echo "Jar not found: $JAR" >&2
-                echo "Build it first:  ./start.sh --build" >&2
+                echo "Build it first:  ./scripts/start.sh --build" >&2
                 exit 2
             fi
-            exec ./e2e-test.sh ;;
+            exec ./scripts/e2e-test.sh ;;
         all)
             # Unit first: failures there are usually more informative than e2e
             # failures and we want them on screen before the slower harness runs.
             mvn test || exit $?
             if [ ! -f "$JAR" ]; then
                 echo "Jar not found: $JAR" >&2
-                echo "Build it first:  ./start.sh --build" >&2
+                echo "Build it first:  ./scripts/start.sh --build" >&2
                 exit 2
             fi
-            exec ./e2e-test.sh ;;
+            exec ./scripts/e2e-test.sh ;;
         *)
             echo "Unknown --test value: $TEST_MODE (expected unit, e2e, or all)" >&2
             exit 2 ;;
@@ -253,7 +257,7 @@ fi
 # bypass the Maven flow we just wired in.
 if [ ! -f "$JAR" ]; then
     echo "Jar not found: $JAR" >&2
-    echo "Build it first:  ./start.sh --build" >&2
+    echo "Build it first:  ./scripts/start.sh --build" >&2
     exit 2
 fi
 

@@ -19,10 +19,10 @@ chooses what shape of message it needs and how many drainer threads to run.
 ## Quick start
 
 ```bash
-./start.sh --build                                              # one-time: mvn clean package
-./start.sh --exclude=.git,target ../..                          # aggregate the parent project
-./start.sh --consumer=duplicates --exclude=.git,target /path    # write ./remove-duplicates.sh
-./start.sh --help                                               # all flags
+./scripts/start.sh --build                                              # one-time: mvn clean package
+./scripts/start.sh --exclude=.git,target ../..                          # aggregate the parent project
+./scripts/start.sh --consumer=duplicates --exclude=.git,target /path    # write ./remove-duplicates.sh
+./scripts/start.sh --help                                               # all flags
 ```
 
 `--exclude` is required (the producer skips these directory basenames at the walk level); an empty list would walk `.git` ref files and per-app caches that the duplicate finder should never touch.
@@ -32,7 +32,7 @@ Requires Java 21 and Maven on PATH.
 ### Recommended sample for `/mnt/c` (WSL → Windows drive)
 
 ```bash
-./start.sh --consumer=duplicates --min-size=1MB --hard-delete \
+./scripts/start.sh --consumer=duplicates --min-size=1MB --hard-delete \
   --exclude="Windows,ProgramData,Program Files,Program Files (x86),\$Recycle.Bin,System Volume Information,\
 workspaceStorage,extensions,.idea,\
 .git,node_modules,target,.mvn,build,dist,.gradle,bin,\
@@ -257,11 +257,11 @@ Backpressure: when the queue is full, `FolderScanner` workers block on
 
 ## Runtime knobs
 
-`start.sh --help` lists every flag and its default. The defaults for
+`scripts/start.sh --help` lists every flag and its default. The defaults for
 `--producers` / `--consumers` are reasonable starting points but are not
 universally optimal — the best split depends on whether your workload is
 IO-bound (large tree on a slow disk) or CPU-bound (hashing many small files
 on a fast SSD), and on the queue type. To retune for your specific tree,
-run `./start.sh --combinations` (or `--combinations-q` to also sweep queue
+run `./scripts/start.sh --combinations` (or `--combinations-q` to also sweep queue
 implementations); it walks a grid of producer/consumer/queue configurations
 and prints the throughput for each.

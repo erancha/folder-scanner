@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # End-to-end tests for the folder-scanner CLI. Builds a tiny fixture tree under a
-# tmpdir, exercises start.sh in aggregate and duplicates modes, and asserts on
+# tmpdir, exercises scripts/start.sh in aggregate and duplicates modes, and asserts on
 # both stdout and the generated remove-duplicates.sh. Three additional tests
-# pin the start.sh error-path branches (unknown flag, missing target dir,
+# pin the scripts/start.sh error-path branches (unknown flag, missing target dir,
 # --hard-delete without --consumer=duplicates) that the JUnit suite cannot
 # reach because they live in the bash dispatcher, not in Java.
 #
-# Run directly (./e2e-test.sh) or via ./start.sh --test=e2e (which fails fast
-# if the jar is missing). Sequential; no parallelism by design - seven tests
-# at ~3 s each finish in well under a minute.
+# Run directly (./scripts/e2e-test.sh) or via ./scripts/start.sh --test=e2e (which
+# fails fast if the jar is missing). Sequential; no parallelism by design - seven
+# tests at ~3 s each finish in well under a minute.
 set -uo pipefail
-cd "$(dirname "$0")"
+# This script lives in scripts/; cd to the project root so the JAR path and the
+# ./scripts/start.sh invocations below resolve against the repo layout no matter
+# where the caller launched us from.
+cd "$(dirname "$0")/.."
 HERE="$(pwd)"
 JAR="$HERE/target/folder-scanner-1.0-SNAPSHOT.jar"
 
 if [ ! -f "$JAR" ]; then
     echo "Jar not found: $JAR" >&2
-    echo "Build it first:  ./start.sh --build" >&2
+    echo "Build it first:  ./scripts/start.sh --build" >&2
     exit 2
 fi
 
@@ -94,7 +97,7 @@ echo "Fixture: $FIXTURE  (5 files: 3 in LE_1KB incl. one dup pair, 1 in LE_1MB, 
 echo
 
 # ---- test 1: aggregate prints the right total file count -------------------
-OUT="$(./start.sh "$EXCLUDE" --consumer=aggregate "$FIXTURE" 2>&1)" || true
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate "$FIXTURE" 2>&1)" || true
 assert_contains "aggregate_headline_files_count" "$OUT" "Files=5"
 
 # ---- test 2: aggregate by-size table distributes correctly -----------------
@@ -109,7 +112,7 @@ assert_contains "aggregate_bucket_le1gb_count_1" "$LE1GB_ROW" " 1 "
 
 # ---- test 3: duplicates mode generates a script with the right group count -
 SCRIPT="$FIXTURE/remove-duplicates.sh"
-OUT="$(./start.sh "$EXCLUDE" --consumer=duplicates "--out=$SCRIPT" "$FIXTURE" 2>&1)" || true
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=duplicates "--out=$SCRIPT" "$FIXTURE" 2>&1)" || true
 assert_contains "duplicates_headline_one_group" "$OUT" "Duplicates: 1 groups, 1 redundant files"
 if [ -f "$SCRIPT" ]; then
     ok "duplicates_script_file_exists"
@@ -129,15 +132,15 @@ if [ -f "$SCRIPT" ]; then
 fi
 
 # ---- test 5: unknown flag exits 2 ------------------------------------------
-./start.sh --not-a-real-flag >/dev/null 2>&1
+./scripts/start.sh --not-a-real-flag >/dev/null 2>&1
 assert_exit_code "unknown_flag_exits_2" "2" "$?"
 
 # ---- test 6: missing target dir fails (Java side, exit 2) ------------------
-./start.sh "$EXCLUDE" "/nonexistent-xyz-folder-scanner-e2e-$$" >/dev/null 2>&1
+./scripts/start.sh "$EXCLUDE" "/nonexistent-xyz-folder-scanner-e2e-$$" >/dev/null 2>&1
 assert_exit_code "missing_target_dir_exits_2" "2" "$?"
 
 # ---- test 7: --hard-delete without --consumer=duplicates is rejected -------
-./start.sh "$EXCLUDE" --hard-delete "$FIXTURE" >/dev/null 2>&1
+./scripts/start.sh "$EXCLUDE" --hard-delete "$FIXTURE" >/dev/null 2>&1
 assert_exit_code "hard_delete_without_duplicates_exits_2" "2" "$?"
 
 echo
