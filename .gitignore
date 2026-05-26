@@ -1,0 +1,5 @@
+target/
+docs/superpowers/
+docs/*-eval-*.md
+trash/
+remove-duplicates.sh
