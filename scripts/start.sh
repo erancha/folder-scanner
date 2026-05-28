@@ -283,7 +283,7 @@ if [ "$COMBINATIONS_Q" = "1" ]; then
     echo ""
 
     # Warm up the FS cache once so the first real run isn't disproportionately slow.
-    java -Dproducers=8 -Dconsumers=8 -Dskipextensionsoutput=true -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
+    java -Dproducers=8 -Dconsumers=8 -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
 
     RESULTS_FILE=$(mktemp)
     ERRORS_TMP=$(mktemp)   # all runs' stderr appended here; deduped to $ERRORS_FILE at end
@@ -295,7 +295,7 @@ if [ "$COMBINATIONS_Q" = "1" ]; then
             for p in "${P_VALUES[@]}"; do
                 for c in "${C_VALUES[@]}"; do
                     COUNT=$((COUNT + 1))
-                    OUT=$(java $FLAGS "${EXCLUDE_FLAG[@]}" -Dstats=true -Dskipextensionsoutput=true -Dqueuetype=$qt -Dqueuesize=$qs -Dproducers=$p -Dconsumers=$c -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
+                    OUT=$(java $FLAGS "${EXCLUDE_FLAG[@]}" -Dstats=true -Dqueuetype=$qt -Dqueuesize=$qs -Dproducers=$p -Dconsumers=$c -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
                     # Metrics: elapsed seconds (Done in line), peak JVM threads and heap-used MB
                     # (Run stats line), process CPU% (Run stats line).
                     SEC=$(printf "%s" "$OUT" | sed -nE 's/^Done in ([0-9.]+) s.*/\1/p')
@@ -371,7 +371,7 @@ if [ "$COMBINATIONS" = "1" ]; then
     mv "$PAIRS_FILE.shuf" "$PAIRS_FILE"
 
     # Warm up the FS cache once so the first real run isn't disproportionately slow.
-    java -Dproducers=8 -Dconsumers=8 -Dskipextensionsoutput=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
+    java -Dproducers=8 -Dconsumers=8 $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
 
     REF_HASH=""
     COUNT=0
@@ -381,7 +381,7 @@ if [ "$COMBINATIONS" = "1" ]; then
         COUNT=$((COUNT + 1))
         # -Dstats=true so the run prints at least one "[stat ...] threads=N/peak ..." line
         # (always emitted at end-of-run by Main), which we parse for the JVM peak thread count.
-        OUT=$(java -Dproducers=$p -Dconsumers=$c -Dstats=true -Dskipextensionsoutput=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
+        OUT=$(java -Dproducers=$p -Dconsumers=$c -Dstats=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
         # Elapsed seconds (1 decimal) from "Done in X.X s." or "Done in X.X s (Y.Y m).".
         SEC=$(printf "%s" "$OUT" | sed -nE 's/^Done in ([0-9.]+) s.*/\1/p')
         # Peak JVM thread count: take the last "threads=N/peak" occurrence from either a
