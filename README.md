@@ -20,7 +20,7 @@ Requires Java 21 and Maven on PATH.
 ./scripts/start.sh --help                                                  # all flags
 ```
 
-**Exclude list**
+**Producer-side filters**
 
 `--exclude=LIST`, `--min-size=SIZE`, and `--file-extensions=LIST` are producer-side filters — filtered-out entries
 never enter the bounded queue. `--exclude` is the cheapest because it short-circuits whole subtrees before any
