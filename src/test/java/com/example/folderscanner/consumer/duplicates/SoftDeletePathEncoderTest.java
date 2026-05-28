@@ -2,11 +2,16 @@ package com.example.folderscanner.consumer.duplicates;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -56,5 +61,56 @@ final class SoftDeletePathEncoderTest {
         Path b = Paths.get("/x_y/z");
         Map<Path, String> names = SoftDeletePathEncoder.encodeAll(List.of(a, b));
         assertNotEquals(names.get(a), names.get(b));
+    }
+
+    private static Path deepPath(int segments) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < segments; i++) sb.append("/segment").append(i);
+        sb.append("/file.bin");
+        return Paths.get(sb.toString());
+    }
+
+    private static int utf8Bytes(String s) {
+        return s.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    @Test
+    void encode_caps_target_filename_at_the_filesystem_byte_limit() {
+        String name = SoftDeletePathEncoder.encode(deepPath(100));
+        assertTrue(utf8Bytes(name) <= 255,
+                "expected <= 255 bytes but was " + utf8Bytes(name) + ": " + name);
+    }
+
+    @Test
+    void encode_is_deterministic_for_the_same_path() {
+        Path p = deepPath(80);
+        assertEquals(SoftDeletePathEncoder.encode(p), SoftDeletePathEncoder.encode(p));
+    }
+
+    @Test
+    void encode_keeps_distinct_long_paths_distinct() {
+        assertNotEquals(
+                SoftDeletePathEncoder.encode(deepPath(100)),
+                SoftDeletePathEncoder.encode(deepPath(101)));
+    }
+
+    @Test
+    void encodeAll_keeps_every_name_within_the_limit_even_when_suffixing_collisions() {
+        // Two distinct over-limit paths that flatten to the same string: one slash-separated,
+        // one with the same components already underscore-joined. The second forces a .1 suffix
+        // onto an already-truncated base — the case that compounds past the byte limit.
+        String slashed = deepPath(100).toString();
+        Path slash = Paths.get(slashed);
+        Path underscore = Paths.get("/" + slashed.substring(1).replace('/', '_'));
+
+        List<Path> paths = new ArrayList<>(List.of(slash, underscore));
+        Map<Path, String> names = SoftDeletePathEncoder.encodeAll(paths);
+
+        assertNotEquals(names.get(slash), names.get(underscore));
+        Set<String> seen = new HashSet<>();
+        for (String n : names.values()) {
+            assertTrue(utf8Bytes(n) <= 255, "name exceeds 255 bytes: " + utf8Bytes(n) + " " + n);
+            assertTrue(seen.add(n), "duplicate target name: " + n);
+        }
     }
 }

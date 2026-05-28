@@ -3,11 +3,22 @@
 Walks a directory tree in parallel and feeds every file to a pluggable consumer.
 The producer (scanner) and the consumer run on separate thread pools
 connected by a bounded queue — when the queue fills, the producer blocks, so
-heap stays flat regardless of tree size. Two consumers ship today:
+heap stays flat regardless of tree size. Two consumers are currently available:
 
 - `aggregate` — counts and bytes per extension, size bucket, and date bucket.
 - `duplicates` — finds identical-content files and writes a shell script that
   quarantines them (or, with `--hard-delete`, removes them outright).
+
+```mermaid
+flowchart LR
+    FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
+    Q --> C["Aggregator OR DuplicateLocator<br/><br/>(one selected per run)"]
+```
+
+The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
+runs per invocation (selected by `--consumer`); the chosen one picks its own
+`FileInfo` variant and its drainer count (consumer threads). Per-consumer pipeline
+details live in their source files.
 
 ## Quick start
 
@@ -44,16 +55,3 @@ AmazonQ,puppeteer,.nuget" \
 directory walking is IO-bound — extra producer threads stay productive while others wait on the disk.
 To retune for a specific tree, run `./scripts/start.sh --combinations` (or `--combinations-q` to sweep queue
 implementations too) — it walks a grid of producer/consumer/queue configurations and prints throughput for each.
-
-### Data flow
-
-```mermaid
-flowchart LR
-    FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
-    Q --> C["Aggregator OR DuplicateLocator<br/><br/>(one selected per run)"]
-```
-
-The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
-runs per invocation (selected by `--consumer`); the chosen one picks its own
-`FileInfo` variant and its drainer count (consumer threads). Per-consumer pipeline
-details live in their source files.
