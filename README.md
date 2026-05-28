@@ -20,13 +20,13 @@ Requires Java 21 and Maven on PATH.
 ./scripts/start.sh --help                                                  # all flags
 ```
 
-### Exclude list
+**Exclude list**
 
 `--exclude=LIST`, `--min-size=SIZE`, and `--file-extensions=LIST` are producer-side filters — filtered-out entries
 never enter the bounded queue. `--exclude` is the cheapest because it short-circuits whole subtrees before any
 directory listing; the other two cost one attribute check per file.
 
-#### Recommended exclude list for `/mnt/c` (WSL → Windows drive)
+**Recommended exclude list** for `/mnt/c` (WSL → Windows drive)
 
 ```bash
 ./scripts/start.sh --consumer=duplicates --min-size=1MB --hard-delete \
@@ -38,33 +38,12 @@ AmazonQ,puppeteer,.nuget" \
   /mnt/c
 ```
 
-### Runtime knobs
+**Runtime knobs**
 
 `scripts/start.sh --help` lists every flag. The producer pool defaults higher than the consumer pool because
 directory walking is IO-bound — extra producer threads stay productive while others wait on the disk.
 To retune for a specific tree, run `./scripts/start.sh --combinations` (or `--combinations-q` to sweep queue
 implementations too) — it walks a grid of producer/consumer/queue configurations and prints throughput for each.
-
-## Architecture
-
-```
-com.example.folderscanner
-├── Main                  composition root: wires producer + consumer + queue
-├── producer/
-│   ├── FolderScanner     walks the tree in parallel, calls factory()
-│   └── FileInfoFactory   SPI (Service Provider Interface): consumer-supplied, producer stays generic
-├── consumer/
-│   ├── FileConsumer      SPI: every consumer plugs in through this interface
-│   ├── Aggregator        by-extension / size / date totals
-│   └── DuplicateLocator  finds identical-content files, writes a removal script
-└── data/
-    └── FileInfo          sealed message; POISON sentinel; ExtensionFileInfo / PathFileInfo variants
-```
-
-The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
-runs per invocation (selected by `--consumer`); the chosen one picks its own
-`FileInfo` variant and its drainer count (consumer threads). Per-consumer pipeline
-details live in their source files.
 
 ### Data flow
 
@@ -73,3 +52,8 @@ flowchart LR
     FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
     Q --> C["Aggregator OR DuplicateLocator<br/><br/>(one selected per run)"]
 ```
+
+The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
+runs per invocation (selected by `--consumer`); the chosen one picks its own
+`FileInfo` variant and its drainer count (consumer threads). Per-consumer pipeline
+details live in their source files.
