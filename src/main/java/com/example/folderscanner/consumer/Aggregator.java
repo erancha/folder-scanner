@@ -37,9 +37,7 @@ public final class Aggregator implements FileConsumer {
     private final BlockingQueue<FileInfo> queue;
     private final ThreadPoolExecutor drainerPool;
 
-    // Keys are file extensions (e.g. "jpg"). CHM uses lock striping so drainer threads can install
-    // a LongAdder for a never-seen extension without one global lock; LongAdder then shards
-    // increments per CPU cell so updates to the same counter don't CAS-contend on a cache line.
+    // Keys are file extensions (e.g. "jpg").
     private final ConcurrentHashMap<String, LongAdder> countByExtension = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LongAdder> bytesByExtension = new ConcurrentHashMap<>();
 
@@ -59,7 +57,7 @@ public final class Aggregator implements FileConsumer {
     private final LongAdder bytesMonth = new LongAdder();
     private final LongAdder bytesYear = new LongAdder();
 
-    // Keys are calendar years; same CHM + LongAdder rationale as countByExtension/bytesByExtension.
+    // Keys are calendar years.
     private final ConcurrentHashMap<Integer, LongAdder> countByPriorYear = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, LongAdder> bytesByPriorYear = new ConcurrentHashMap<>();
 

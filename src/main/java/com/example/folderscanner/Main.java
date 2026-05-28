@@ -23,9 +23,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Composition root. Parses the typed {@link Config} from system properties, then wires the
- * producer (FolderScanner), the consumer (Aggregator or DuplicateLocator), and the bounded queue
- * between them. Every tuning knob comes from Config so CLI string handling stays at the boundary.
+ * Composition root. Parses the typed {@link Config} from system properties, then wires the producer
+ * (FolderScanner), the consumer (Aggregator or DuplicateLocator), and the bounded queue between
+ * them. Every tuning knob comes from Config so CLI string handling stays at the boundary.
  */
 public final class Main {
 
@@ -35,7 +35,8 @@ public final class Main {
     private static final OperatingSystemMXBean OS_MX = (OperatingSystemMXBean) ManagementFactory
             .getOperatingSystemMXBean();
 
-    private Main() {}
+    private Main() {
+    }
 
     public static void main(String[] args) throws Exception {
         Path root = Paths.get(args.length > 0 ? args[0] : ".").toAbsolutePath().normalize();
@@ -59,14 +60,10 @@ public final class Main {
             return;
         }
 
-        // ABQ vs LBQ trade contention shape against allocation:
-        // ABQ (default): pre-allocated array, one lock — no per-put allocation but producers and
-        // consumers contend on the same lock. Pick when consumer work per item is non-trivial
-        // (DuplicateLocator hashing files): queue rarely runs hot, so the shared lock doesn't bite.
-        // LBQ: linked nodes, separate put/take locks — one allocation per put, but producers and
-        // consumers don't fight for the same lock. Pick when both sides run hot enough that
-        // single-lock contention shows up (Aggregator on a warm-cache tree, where per-item
-        // consumer work is tiny).
+        // ABQ: one shared lock, no per-put allocation — pick when consumer work per item is
+        // heavy so the queue rarely runs hot (e.g. DuplicateLocator hashing files).
+        // LBQ: split put/take locks, one allocation per put — pick when both sides run hot
+        // enough for single-lock contention to bite (e.g. Aggregator on a warm-cache tree).
         BlockingQueue<FileInfo> queue = switch (cfg.queueType()) {
         case LBQ -> new LinkedBlockingQueue<>(cfg.queueSize());
         case ABQ -> new ArrayBlockingQueue<>(cfg.queueSize());

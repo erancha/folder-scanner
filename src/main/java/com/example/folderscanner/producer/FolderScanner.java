@@ -20,12 +20,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Walks a directory tree in parallel and enqueues one FileInfo per regular file.
  *
- * Why ForkJoinPool over a fixed pool: directory trees are uneven (a node_modules subtree can be
- * 100k files while a sibling has 3). Work-stealing lets idle workers pull tasks off busy workers'
- * deques, so a fat subtree doesn't pin one worker while others sit idle.
- *
- * Uses blocking queue.put() — backpressure is built in; the bound (and the OOM defense it provides)
- * is Main's call.
+ * Uses ForkJoinPool because directory trees are uneven: work-stealing keeps idle workers useful
+ * when one fat subtree (e.g. node_modules) would otherwise pin a single worker.
  */
 public final class FolderScanner {
 
