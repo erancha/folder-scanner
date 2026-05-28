@@ -1,6 +1,7 @@
 package com.example.folderscanner.consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -88,5 +89,26 @@ final class ScriptWriterTest {
         // double quotes cannot be closed and $-expansion cannot fire.
         assertTrue(mvLine.endsWith("\"$BIN/foo_bar\\\"\\$.txt\""),
                 "bin name not escaped — injection possible. Line was: " + mvLine);
+    }
+
+    @Test
+    void bin_path_resolves_relative_to_script_location_not_cwd() throws IOException {
+        Path tmp = Files.createTempDirectory("scriptwriter-bin-cwd");
+        Path scriptPath = tmp.resolve("remove.sh");
+        DuplicateReport report = new DuplicateReport(
+                List.of(new DuplicateReport.Group(100L,
+                        List.of(Paths.get("/a.txt"), Paths.get("/b.txt")))),
+                1L, 1L, 100L, 0L, 0L);
+
+        ScriptWriter.write(scriptPath, tmp, report, false);
+
+        String binLine = Files.readAllLines(scriptPath).stream()
+                .filter(l -> l.startsWith("BIN="))
+                .findFirst().orElseThrow();
+        assertFalse(binLine.equals("BIN=\"./trash\""),
+                "BIN must not be cwd-relative ./trash; was: " + binLine);
+        assertTrue(binLine.contains("dirname") && binLine.contains("$0"),
+                "BIN must resolve via $(dirname \"$0\") so the script works from any cwd; was: "
+                        + binLine);
     }
 }

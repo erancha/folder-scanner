@@ -15,34 +15,31 @@ import com.example.folderscanner.data.Format;
 /**
  * Writes the duplicate-removal shell script.
  *
- * Soft delete (default): mv each redundant file to BIN/encoded-name.
- * Hard delete: rm each redundant file.
+ * The first path of each group is emitted as a commented-out "# KEPT" line so the user can
+ * pick a different keeper before running. The active commands operate on the rest.
  *
- * The first path in every group (lexicographically smallest, sort done
- * in phase 2) is commented out with a # KEPT marker; the user can edit
- * the script before running to choose a different keeper.
+ * Soft delete = mv to a bin under the script's own directory; hard delete = rm in place.
+ * Filenames in the scanned tree are untrusted input — every interpolation site goes through
+ * shellQuote to prevent shell injection.
  */
 public final class ScriptWriter {
 
-    /** Timestamp format used in the generated script header. */
     private static final DateTimeFormatter STAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private ScriptWriter() {}
 
-    /** Write the script for the given report to scriptPath. */
     public static void write(Path scriptPath, Path sourceTree, DuplicateReport report,
             boolean hardDelete) throws IOException {
         Files.createDirectories(scriptPath.toAbsolutePath().getParent());
 
-        // Pre-compute bin names for every redundant path so the script has no
-        // ambiguity at run time. Skip per-group index 0 (the keeper).
         List<Path> redundantPaths = report.groups().stream()
                 .flatMap(g -> g.paths().subList(1, g.paths().size()).stream())
                 .toList();
         Map<Path, String> binNames = BinName.encodeAll(redundantPaths);
 
-        try (PrintWriter w = new PrintWriter(Files.newBufferedWriter(scriptPath, StandardCharsets.UTF_8))) {
+        try (PrintWriter w = new PrintWriter(
+                Files.newBufferedWriter(scriptPath, StandardCharsets.UTF_8))) {
             writeHeader(w, sourceTree, report, hardDelete);
             writeBannerAndConfirm(w, report, hardDelete);
             if (!hardDelete) w.println("mkdir -p \"$BIN\"\n");
@@ -54,20 +51,16 @@ public final class ScriptWriter {
                         paths.size(),
                         Format.humanBytes((paths.size() - 1L) * g.fileSizeBytes()));
 
-                // Keeper line — first path, commented.
                 w.printf("# %s \"%s\"   # KEPT (first by sort order)%n",
                         hardDelete ? "rm" : "mv", shellQuote(paths.get(0)));
 
-                // Redundants — active commands.
                 for (int i = 1; i < paths.size(); i++) {
                     Path p = paths.get(i);
                     if (hardDelete) {
                         w.printf("rm \"%s\"%n", shellQuote(p));
                     } else {
-                        // Filenames in the scanned tree are untrusted input. A file named
-                        // foo"; rm -rf $HOME; #  reaches this line with both interpolations
-                        // controlled by the attacker — escaping only the path side would
-                        // still let the bin half break out of the surrounding double quotes.
+                        // Both source path and bin name are attacker-controlled (filenames in
+                        // the scanned tree). Each interpolation site goes through shellQuote.
                         w.printf("mv \"%s\" \"$BIN/%s\"%n",
                                 shellQuote(p), shellQuoteString(binNames.get(p)));
                     }
@@ -77,7 +70,6 @@ public final class ScriptWriter {
         }
     }
 
-    /** Write the shebang, set -euo pipefail, and the comment block header. */
     private static void writeHeader(PrintWriter w, Path sourceTree, DuplicateReport r,
             boolean hardDelete) {
         w.println("#!/usr/bin/env bash");
@@ -96,13 +88,15 @@ public final class ScriptWriter {
         w.println("# ##########################################################################");
         w.println();
         if (!hardDelete) {
-            w.println("BIN=\"./trash\"");
+            // BIN is resolved relative to the script's own location so the script works from
+            // any cwd (and so the bin doesn't end up wherever the user happened to be).
+            w.println("BIN=\"$(cd \"$(dirname \"$0\")\" && pwd)/trash\"");
             w.println();
         }
     }
 
-    /** Write the interactive warning banner and read-confirm guard. */
-    private static void writeBannerAndConfirm(PrintWriter w, DuplicateReport r, boolean hardDelete) {
+    private static void writeBannerAndConfirm(
+            PrintWriter w, DuplicateReport r, boolean hardDelete) {
         String verb = hardDelete ? "DELETE" : "MOVE";
         String prompt = hardDelete ? "DELETE in capitals" : "y";
         String expected = hardDelete ? "DELETE" : "y";
@@ -125,25 +119,14 @@ public final class ScriptWriter {
     }
 
     /**
-     * Quoting for paths embedded inside double-quoted shell arguments.
-     * Escapes backslash, double quote, dollar sign, and backtick - the
-     * four characters that retain special meaning inside double quotes.
-     * Single quotes need no handling. Order matters: backslash must come
-     * first so the substitutions we add are not themselves re-escaped.
-     * Package-private so the unit test in the same package can call it directly.
+     * Escapes the four characters that retain special meaning inside double-quoted shell
+     * arguments (\, ", $, `). Order matters: backslash must be replaced first, otherwise the
+     * substitutions added by the later steps would themselves get re-escaped.
      */
     static String shellQuote(Path p) {
         return shellQuoteString(p.toString());
     }
 
-    /**
-     * String-input variant of shellQuote used for substitutions that are not
-     * filesystem paths (currently the bin filename in the mv target). Same
-     * four-character escape set and the same order-sensitive backslash-first
-     * rule. Every value interpolated into a double-quoted shell argument must
-     * go through this — the source path and the bin name are both injection
-     * sites in mv "<src>" "$BIN/<bin>".
-     */
     static String shellQuoteString(String s) {
         return s
                 .replace("\\", "\\\\")

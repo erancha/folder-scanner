@@ -1,9 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  What: minimal Maven descriptor so VS Code / IntelliJ recognise this directory
-        as a Java project. Sources live in src/main/java (Maven default), compiled
-        classes and the jar go to target/ so `mvn clean` properly wipes them.
--->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
@@ -21,11 +16,6 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <!--
-      What: JUnit 5 for unit tests over the pure helpers (Format, SizeBucket, BinName,
-            OutPathResolver, ScriptWriter, Aggregator). Test scope so the runtime jar
-            stays free of test classes.
-    -->
     <dependencies>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -41,21 +31,11 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
             </plugin>
-            <!--
-              What: surefire 3.x is required to discover JUnit 5 (Jupiter) tests; the
-                    Maven-default 2.x predates the Jupiter engine and silently runs zero
-                    tests, which would defeat the entire point of having a test suite.
-            -->
+            <!-- Surefire 3.x is required to discover JUnit 5 (Jupiter) tests. -->
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
             </plugin>
-            <!--
-              What: Main-Class manifest entry so the packaged jar is executable
-                    via `java -jar target/folder-scanner-1.0-SNAPSHOT.jar`.
-              Why:  scripts/start.sh launches the program from the jar (not -cp out),
-                    so the manifest must point at Main.
-            -->
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.4.1</version>
@@ -67,13 +47,7 @@
                     </archive>
                 </configuration>
             </plugin>
-            <!--
-              What: exec-maven-plugin so `mvn compile exec:java` runs Main.
-              Why:  Maven has no `run` phase; without this plugin the only way to
-                    invoke the program through Maven is hand-rolling a java command.
-                    The scan target defaults to ../.. to match scripts/start.sh; override
-                    on the CLI with -Dexec.args="path" (e.g. -Dexec.args="./docs").
-            -->
+            <!-- `mvn compile exec:java` runs Main. Override the scan target with -Dexec.args="path". -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>

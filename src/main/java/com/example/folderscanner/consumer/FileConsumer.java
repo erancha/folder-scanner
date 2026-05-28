@@ -4,32 +4,25 @@ import com.example.folderscanner.producer.FileInfoFactory;
 import java.io.PrintStream;
 
 /**
- * Lifecycle SPI for everything that drains the queue. The composition
- * root constructs one implementation per run based on the user's choice
- * and treats every consumer through this interface. Implementations own
- * their own thread pool, their own output format, and any post-drain
- * work (e.g. a second pass over collected state).
+ * SPI (Service Provider Interface) every queue-draining consumer implements. The composition
+ * root picks one implementation per run and treats it through this interface only. Each
+ * implementation owns its own thread pool, output format, and any post-drain work (e.g. the
+ * duplicate locator's phase 2).
  */
 public interface FileConsumer {
 
-    /** Number of drainer threads; the composition root enqueues one POISON per drainer. */
+    /** Number of drainer threads. The composition root enqueues exactly this many POISON pills. */
     int consumerCount();
 
-    /** Factory the producer will use; supplied here so this consumer gets the variant it needs. */
+    /** Consumer-supplied so the producer stays agnostic of which FileInfo variant it builds. */
     FileInfoFactory factory();
 
-    /** Spawn drainer threads. Returns immediately. */
     void start();
 
-    /**
-     * Block until all drainers exit AND any post-drain work is done, then
-     * print or write this consumer's own output to the given stream.
-     */
+    /** Block until every drainer + post-drain work finishes, then write this consumer's output. */
     void awaitAndReport(PrintStream out) throws InterruptedException;
 
-    /** Used by the composition root for the canonical Files=... headline. */
     long totalFilesSeen();
 
-    /** Used by the composition root for the canonical TotalBytes=... headline. */
     long totalBytesSeen();
 }

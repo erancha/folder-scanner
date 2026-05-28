@@ -1,21 +1,16 @@
 package com.example.folderscanner.data;
 
 /**
- * Common shape for every message a producer enqueues for a consumer.
- * Sealed so consumers can destructure the hierarchy with an exhaustive
- * pattern-match switch: every variant must be handled, and adding a new
- * permitted subtype here is a compile error in every consumer until they
- * update. POISON is the end-of-stream sentinel; consumers detect it via
- * the PoisonPill arm of that switch.
+ * Sealed message interface for the producer/consumer queue. Sealed so each consumer's
+ * dispatch switch is exhaustive: adding a new permitted variant breaks every consumer
+ * at compile time instead of being silently dropped at runtime.
  */
 public sealed interface FileInfo permits TypeFileInfo, PathFileInfo, PoisonPill {
 
-    /** Size in bytes of the file this message describes. */
     long size();
 
-    /** Last-modified time in epoch millis. */
     long lastModifiedMillis();
 
-    /** Shared end-of-stream sentinel. One enqueued per consumer thread. */
+    /** End-of-stream sentinel. The composition root enqueues one per drainer thread. */
     FileInfo POISON = new PoisonPill();
 }

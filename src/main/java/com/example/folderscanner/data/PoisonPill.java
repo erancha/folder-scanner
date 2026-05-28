@@ -1,14 +1,11 @@
 package com.example.folderscanner.data;
 
 /**
- * End-of-stream sentinel variant. The shared FileInfo.POISON singleton is
- * the only instance ever created (constructor is package-private); consumers
- * detect it via the PoisonPill arm of their exhaustive pattern-match switch
- * over the sealed FileInfo hierarchy.
+ * End-of-stream sentinel. Package-private constructor so FileInfo.POISON is the only
+ * instance — identity-equality on the consumer side is therefore safe.
  */
 public final class PoisonPill implements FileInfo {
 
-    /** Package-private so only FileInfo.POISON can construct one. */
     PoisonPill() {}
 
     @Override public long size() { return Long.MIN_VALUE; }

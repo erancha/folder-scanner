@@ -3,11 +3,8 @@ package com.example.folderscanner.consumer;
 import java.util.Map;
 
 /**
- * Immutable snapshot of the aggregator's final counts: by extension, by
- * size bucket, and by date bucket. Separate maps for count and bytes so
- * callers can scan just the metric they care about. The maps are not
- * defensively copied here; the producer of this record builds them once
- * and never mutates them.
+ * Immutable snapshot of the aggregator's final counts. Maps are not defensively copied —
+ * the builder constructs them once and never mutates them after returning the record.
  */
 public record AggregationResult(
     Map<String, Long> countByExtension,
@@ -15,5 +12,7 @@ public record AggregationResult(
     Map<SizeBucket, Long> countBySizeBucket,
     Map<SizeBucket, Long> bytesBySizeBucket,
     Map<String, Long> countByDateBucket,
-    Map<String, Long> bytesByDateBucket
+    Map<String, Long> bytesByDateBucket,
+    long totalFiles,
+    long totalBytes
 ) {}

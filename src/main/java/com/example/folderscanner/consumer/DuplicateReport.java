@@ -4,14 +4,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Snapshot of phase-2 results. Internal to the consumer package; the
- * public surface is the generated shell script.
- *
- * groups is sorted by descending wasted bytes so the user reading the
- * generated script sees the biggest wins first. The list and the inner
- * Group.paths lists are NOT defensively copied — callers receive the
- * same instances the producer built. Since this record is constructed
- * once and never mutated after, that is safe.
+ * Snapshot of phase-2 results. Groups are sorted by descending wasted bytes so the
+ * generated script shows the biggest wins first.
  */
 public record DuplicateReport(
         List<Group> groups,

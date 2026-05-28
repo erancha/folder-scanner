@@ -5,6 +5,7 @@ import com.example.folderscanner.consumer.DuplicateLocator;
 import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
+import com.example.folderscanner.producer.FileTypes;
 import com.example.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
 import java.lang.management.ManagementFactory;
@@ -22,43 +23,20 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * What: composition root that wires a FolderScanner (producer) and an Aggregator (consumer)
- *       through a bounded queue, runs them against a user-supplied directory, and prints the
- *       aggregated result.
- * Why:  manual constructor wiring (no Spring) keeps the dependencies explicit - every choice
- *       (queue capacity, scanner parallelism, consumer count) lives here in one block so it
- *       can be tuned or stubbed in tests without touching the workers.
+ * Composition root. Wires the producer (FolderScanner), the consumer (Aggregator or
+ * DuplicateLocator), and the bounded queue between them. Every tuning knob lives here in one block
+ * so it can be overridden from tests or from --combinations runs.
  */
 public final class Main {
 
     /**
-     * What: bounded queue capacity, defaulting to 4096. Overridable via -Dqueuesize (set by
-     *       scripts/start.sh --queue-size).
-     * Why:  small enough that put() starts blocking quickly when consumers stall - that's the
-     *       OOM defense; configurable so we can compare e.g. 4096 vs 8192 against both LBQ
-     *       and ABQ.
+     * Bounded queue capacity. Small on purpose: put() starts blocking quickly when consumers stall,
+     * which is the producer-side OOM (Out Of Memory) defense.
      */
     private static final int QUEUE_CAPACITY = Integer.getInteger("queuesize", 4096);
 
-    /**
-     * What: enables once-per-second stdout stats.
-     * Why:  -Dstat=true (set by scripts/start.sh --stat) makes it opt-in so normal runs stay quiet.
-     */
     private static final boolean STAT = Boolean.getBoolean("stat");
-
-    /**
-     * What: cached ThreadMXBean.
-     * Why:  ManagementFactory.getThreadMXBean() returns a singleton; cache the ref so the
-     *       stat callback doesn't re-fetch each tick.
-     */
     private static final ThreadMXBean THREAD_MX = ManagementFactory.getThreadMXBean();
-
-    /**
-     * What: cached OperatingSystemMXBean (Sun-specific subtype).
-     * Why:  needed for getProcessCpuTime() so we can report cpu% as total CPU consumed / wall
-     *       time. On a parallel program this naturally exceeds 100% (e.g. 380% on 4 cores
-     *       means we kept ~3.8 cores busy on average), which is exactly the signal we want.
-     */
     private static final OperatingSystemMXBean OS_MX = (OperatingSystemMXBean) ManagementFactory
             .getOperatingSystemMXBean();
 
@@ -69,48 +47,41 @@ public final class Main {
             System.exit(2);
         }
 
-        // -Dproducers / -Dconsumers (set by scripts/start.sh --producers / --consumers)
-        // override the defaults. Defaults below come from the --combinations-q
-        // benchmark on a ~1M-file IO-bound tree on /mnt/c (WSL): producers=100 +
-        // consumers=48 was on the winning combination (352.4 s, lowest peak thread
-        // count among the top 4 results within 0.6%). On small/fast trees, lower
-        // values like producers=24 / consumers=16 may be faster - tune with
-        // ./scripts/start.sh --combinations for your workload.
-        int scannerParallelism = Integer.getInteger("producers", 100);
-        int consumerThreads = Integer.getInteger("consumers", 48);
-        if (scannerParallelism < 1 || consumerThreads < 1) {
+        // NCPU-scaled (Number of CPU cores) defaults so they travel across machines. Producers run
+        // higher than consumers because directory walking is IO-bound (over-subscribing CPUs while
+        // waiting on the disk is the win); consumer work per message is small and CPU-bound.
+        int ncpu = Runtime.getRuntime().availableProcessors();
+        int producers = Integer.getInteger("producers", Math.max(8, ncpu * 4));
+        int consumers = Integer.getInteger("consumers", Math.max(4, ncpu * 2));
+        if (producers < 1 || consumers < 1) {
             System.err.println("producers and consumers must be >= 1");
             System.exit(2);
         }
 
-        // -Dqueuetype (set by scripts/start.sh --queue-type) selects the BlockingQueue impl:
-        // abq -> ArrayBlockingQueue (default): pre-allocated array, zero per-put
-        //        allocation, single lock. Wins on long IO-bound scans where LBQ's
-        //        ~280MB of per-put Node garbage triggers GC pauses (see
-        //        --combinations-q analysis: ABQ ~3x tighter tail and no outliers).
-        // lbq -> LinkedBlockingQueue: linked nodes, one allocation per put, separate
-        //        putLock + takeLock. Slightly faster on small/fast scans where GC
-        //        cost is negligible and the two-lock design wins.
-        // Both implement BlockingQueue<E> with identical put/take semantics, so the
-        // producer (FolderScanner) and consumer (Aggregator) are agnostic.
+        // ABQ vs LBQ trade contention shape against allocation:
+        // ABQ (default): pre-allocated array, one lock — no per-put allocation but producers and
+        // consumers contend on the same lock. Pick when consumer work per item is non-trivial
+        // (DuplicateLocator hashing files): queue rarely runs hot, so the shared lock doesn't bite.
+        // LBQ: linked nodes, separate put/take locks — one allocation per put, but producers and
+        // consumers don't fight for the same lock. Pick when both sides run hot enough that
+        // single-lock contention shows up (Aggregator on a warm-cache tree, where per-item
+        // consumer work is tiny).
         String queueType = System.getProperty("queuetype", "abq").toLowerCase();
-        // APPLICATION QUEUE: producer (e.g. FolderScanner) -> consumer (e.g. Aggregator) handoff.
         BlockingQueue<FileInfo> queue;
         switch (queueType) {
-            case "lbq" -> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
-            case "abq" -> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
-            default -> {
-                System.err.println("Unknown queue type: " + queueType + " (expected lbq or abq)");
-                System.exit(2);
-                return; // unreachable, keeps the compiler happy about queue being unassigned
-            }
+        case "lbq" -> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
+        case "abq" -> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
+        default -> {
+            System.err.println("Unknown queue type: " + queueType + " (expected lbq or abq)");
+            System.exit(2);
+            return;
         }
+        }
+
         String consumerName = System.getProperty("consumer", "aggregate");
-        String outPath     = System.getProperty("out", "");
+        String outPath = System.getProperty("out", "");
         boolean hardDelete = Boolean.getBoolean("harddelete");
-        // -Dminsize (set by scripts/start.sh --min-size) filters small files out of the
-        // duplicate locator before bucketing. Parsed here at the boundary so
-        // bad input fails fast with a single clean error.
+
         long minSizeBytes;
         try {
             minSizeBytes = Format.parseSize(System.getProperty("minsize", "0"));
@@ -119,43 +90,47 @@ public final class Main {
             System.exit(2);
             return;
         }
+
+        FileTypes.IncludeSet includeTypes = FileTypes.parse(System.getProperty("filetypes", "*"));
         FileConsumer consumer = switch (consumerName) {
-            case "aggregate"  -> new Aggregator(queue, consumerThreads);
-            case "duplicates" -> new DuplicateLocator(queue, consumerThreads, outPath, hardDelete, root, minSizeBytes);
-            default -> {
-                System.err.println("Unknown --consumer: " + consumerName
-                        + " (expected aggregate or duplicates)");
-                System.exit(2);
-                yield null;
-            }
+        case "aggregate" -> new Aggregator(queue, consumers);
+        case "duplicates" -> new DuplicateLocator(queue, consumers, outPath, hardDelete, root);
+        default -> {
+            System.err.println(
+                    "Unknown --consumer: " + consumerName + " (expected aggregate or duplicates)");
+            System.exit(2);
+            yield null;
+        }
         };
-        // -Dexclude (set by scripts/start.sh --exclude) is a comma-separated list of directory
-        // basenames to skip during the walk (e.g. node_modules,target,.mvn,.git). Parsed
-        // here at the boundary so the FolderScanner stays a plain Set-consuming API.
-        // Required: an empty list would walk every directory including .git ref files and
-        // per-app caches, which the duplicate locator would then flag for deletion — almost
-        // always the wrong default. The policy lives in scripts/start.sh / README, not in Java.
-        Set<String> excludeDirs = parseExcludeDirs(System.getProperty("exclude", ""));
+
+        Set<String> excludeDirs = parseExcludeDirs(System.getProperty("exclude", ".git"));
         if (excludeDirs.isEmpty()) {
-            System.err.println("--exclude is required: pass a comma-separated list of directory basenames "
-                    + "to skip (e.g. --exclude=.git,node_modules,target). See README for recommended lists.");
+            System.err.println(
+                    "--exclude is required: pass a comma-separated list of directory basenames "
+                            + "to skip (e.g. --exclude=.git,node_modules,target). "
+                            + "See README for recommended lists.");
             System.exit(2);
         }
-        FolderScanner scanner = new FolderScanner(queue, scannerParallelism, consumer.factory(), excludeDirs);
+        FolderScanner scanner = new FolderScanner(queue, producers, consumer.factory(), excludeDirs,
+                includeTypes, minSizeBytes);
 
-        System.out.printf("Scanning %s  (consumer=%s  scanner=%d  consumer-threads=%d  queue=%s/%d)%n",
-                root, consumerName, scannerParallelism, consumerThreads, queueType, QUEUE_CAPACITY);
+        System.out.printf(
+                "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n", root,
+                producers, consumerName, consumers, queueType, QUEUE_CAPACITY);
         System.out.printf("Excluding directories: %s%n", String.join(", ", excludeDirs));
 
         long t0 = System.nanoTime();
-        long cpu0 = OS_MX.getProcessCpuTime(); // baseline so the reported cpu% excludes JVM startup work
+        long cpu0 = OS_MX.getProcessCpuTime();
         consumer.start();
 
+        // Under --stat, prints a live queue-depth/heap/thread snapshot every second so the
+        // user can watch backpressure as the scan runs. Needs its own thread because main
+        // is about to block in scanner.scan(). Daemon so it can't keep the JVM alive on its own.
         ScheduledExecutorService statsTimer = null;
         if (STAT) {
             statsTimer = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "stat-reporter");
-                t.setDaemon(true); // daemon so it never blocks JVM exit if we forget to stop it
+                t.setDaemon(true);
                 return t;
             });
             statsTimer.scheduleAtFixedRate(() -> printStats(queue, t0), 1, 1, TimeUnit.SECONDS);
@@ -163,9 +138,7 @@ public final class Main {
 
         try {
             scanner.scan(root);
-            // Producer side is done. Enqueue one POISON per consumer so each consumer
-            // takes exactly one and exits cleanly; the queue's FIFO ordering guarantees
-            // pills are taken last (after every real FileInfo already enqueued).
+            // One POISON per consumer; the queue is FIFO so pills come after every real file.
             for (int i = 0; i < consumer.consumerCount(); i++) {
                 queue.put(FileInfo.POISON);
             }
@@ -177,40 +150,40 @@ public final class Main {
 
         consumer.awaitAndReport(System.out);
 
+        if (minSizeBytes > 0) {
+            System.out.printf("%nSkipped (size < %s): %,d files (%s).%n",
+                    Format.humanBytes(minSizeBytes), scanner.filteredBySizeCount(),
+                    Format.humanBytes(scanner.filteredBySizeBytes()));
+        }
+        if (!includeTypes.isAll()) {
+            System.out.printf("%nSkipped (type not in %s): %,d files (%s).%n",
+                    includeTypes.displayList(), scanner.filteredByTypeCount(),
+                    Format.humanBytes(scanner.filteredByTypeBytes()));
+        }
+
         long elapsedNs = System.nanoTime() - t0;
         long elapsedMs = elapsedNs / 1_000_000;
         System.out.printf("%nDone in %s. Files=%,d  TotalBytes=%s%n",
-                Format.formatElapsed(elapsedMs),
-                consumer.totalFilesSeen(),
+                Format.formatElapsed(elapsedMs), consumer.totalFilesSeen(),
                 Format.humanBytes(consumer.totalBytesSeen()));
         printRunSummary(elapsedNs, cpu0);
         if (STAT)
-            printStats(queue, t0); // one final tick so the closing thread/heap state is in the log
+            printStats(queue, t0);
     }
 
-    /**
-     * What: splits a comma-separated -Dexclude value into a set of directory basenames,
-     *       trimming whitespace and ignoring empty entries.
-     * Why:  this is the boundary between the shell-level flag and the strongly-typed
-     *       Set&lt;String&gt; the FolderScanner takes; parsing once here keeps the producer
-     *       agnostic of how the user supplied the list.
-     */
     private static Set<String> parseExcludeDirs(String raw) {
-        Set<String> out = new LinkedHashSet<>(); // preserves user order for the startup banner
-        if (raw == null) return out;
+        Set<String> out = new LinkedHashSet<>();
+        if (raw == null)
+            return out;
         for (String token : raw.split(",")) {
             String name = token.trim();
-            if (!name.isEmpty()) out.add(name);
+            if (!name.isEmpty())
+                out.add(name);
         }
         return out;
     }
 
-    /**
-     * What: prints a one-line run-stats summary at end of run - threads, heap, cpu%.
-     * Why:  the user always wants to see this for the headline run, not just under --stat
-     *       (which is for periodic ticks). cpu% is total process CPU consumed during the run
-     *       divided by wall time; values above 100% indicate effective multi-core utilisation.
-     */
+    /** cpu% = CPU consumed during run / wall time. >100% means effective multi-core use. */
     private static void printRunSummary(long elapsedNs, long cpuStartNs) {
         long cpuNs = OS_MX.getProcessCpuTime() - cpuStartNs;
         double cpuPct = elapsedNs > 0 ? (cpuNs * 100.0 / elapsedNs) : 0.0;
@@ -219,20 +192,13 @@ public final class Main {
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         long maxMb = rt.maxMemory() / (1024 * 1024);
-        System.out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n",
-                threads, peak, usedMb, maxMb, cpuPct);
+        System.out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n", threads,
+                peak, usedMb, maxMb, cpuPct);
     }
 
     /**
-     * What: prints a one-line stats snapshot - elapsed seconds, live thread count and peak,
-     *       heap used vs max, and queue depth.
-     * Why:  three things a senior would actually want to see while watching this run:
-     *       (1) thread count - confirms scanner/aggregator workers are alive and JVM internals
-     *           are reasonable;
-     *       (2) heap used - the OOM-defense check (should stay flat under backpressure, not
-     *           climb monotonically);
-     *       (3) queue depth - if it's pinned at capacity, consumers are the bottleneck; if
-     *           it's near zero, producers are.
+     * Periodic stats. Queue depth is the most informative signal: pinned at capacity means
+     * consumers are the bottleneck; pinned near zero means producers are.
      */
     private static void printStats(BlockingQueue<FileInfo> queue, long startNs) {
         long elapsedS = (System.nanoTime() - startNs) / 1_000_000_000L;
@@ -244,5 +210,4 @@ public final class Main {
         System.out.printf("[stat T+%3ds] threads=%d/%d  heapUsed=%dMB heapMax=%dMB  queue=%d/%d%n",
                 elapsedS, threads, peak, usedMb, maxMb, queue.size(), QUEUE_CAPACITY);
     }
-
 }

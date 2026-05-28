@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 FLAGS=""
-TARGET="../.."
+TARGET=""
 COMBINATIONS=0
 COMBINATIONS_Q=0
 BUILD=0              # --build runs `mvn package` to produce the executable jar, then exits
@@ -19,6 +19,7 @@ CONSUMER_FLAG=""     # -Dconsumer=... ; defaults to aggregate when unset
 HARD_DELETE=0        # 1 when --hard-delete was passed
 MIN_SIZE_RAW=""      # raw value of --min-size=... ; forwarded to Java, parsed there
 EXCLUDE_RAW=""       # raw value of --exclude=... ; comma-separated dir basenames, forwarded to Java
+FILE_TYPES_RAW=""    # raw value of --file-types=... ; forwarded to Java as -Dfiletypes
 OUT_FLAG_RAW=""      # raw value of --out=... ; bash uses it for tee in aggregate mode,
                      # Java uses it for the script path in duplicates mode
 JAR="target/folder-scanner-1.0-SNAPSHOT.jar"  # produced by `./scripts/start.sh --build`; consumed by every run path below
@@ -59,6 +60,8 @@ for arg in "$@"; do
             HARD_DELETE=1 ;;
         --min-size=*)
             MIN_SIZE_RAW="${arg#--min-size=}" ;;
+        --file-types=*)
+            FILE_TYPES_RAW="${arg#--file-types=}" ;;
         --exclude=*)
             EXCLUDE_RAW="${arg#--exclude=}" ;;
         --out=*)
@@ -72,7 +75,7 @@ Usage: ./scripts/start.sh --build
        ./scripts/start.sh --test
        ./scripts/start.sh [--consumer=aggregate|duplicates] [--stat] [--no-types] [--producers=N] [--consumers=N]
                   [--queue-type=lbq|abq] [--queue-size=N] [--out=PATH] [--hard-delete] [--min-size=SIZE]
-                  [--exclude=NAME1,NAME2,...] [path]
+                  [--file-types=LIST] [--exclude=NAME1,NAME2,...] [path]
        ./scripts/start.sh --combinations   [--queue-type=lbq|abq] [--queue-size=N] [--out=FILE] [--errors=FILE] [path]
        ./scripts/start.sh --combinations-q [--out=FILE] [--errors=FILE] [path]
 
@@ -92,10 +95,17 @@ Usage: ./scripts/start.sh --build
                   copies. Combinations modes only support --consumer=aggregate and reject anything else.
   --hard-delete   Duplicates mode only. Switches the generated script from soft delete (mv to a bin) to hard
                   delete (rm). The script prompts for the literal string DELETE before doing anything.
-  --min-size=SIZE Duplicates mode only. Skip files smaller than SIZE before bucketing, so the locator only
-                  considers files that meet the threshold. SIZE is a 1024-based count: raw bytes (e.g. 4096)
-                  or one of NB / NKB / NMB / NGB / NTB (case-insensitive, e.g. 1MB, 512KB). Default 0 = no
-                  filter. Useful for skipping tiny config / cache / pyc files that are unlikely to matter.
+  --min-size=SIZE Applies to all consumers. Skip files smaller than SIZE before they enter the queue,
+                  so no consumer ever sees them. SIZE is a 1024-based count: raw bytes (e.g. 4096) or one
+                  of NB / NKB / NMB / NGB / NTB (case-insensitive, e.g. 1MB, 512KB). Default 0 = no filter.
+                  Useful for skipping tiny config / cache / pyc files that are unlikely to matter.
+  --file-types=LIST  Applies to all consumers. Comma-separated extension list to include; everything else
+                  is skipped before it enters the queue. Tokens are case-insensitive and a leading dot is
+                  optional, so --file-types=txt, --file-types=.TXT, and --file-types=TXT all mean the same
+                  thing. The special token "none" includes files with no extension (README, Makefile,
+                  .gitignore, foo.). Use --file-types=* (the default) to disable the filter. Examples:
+                    --file-types=jpg,jpeg,png,gif,bmp,heic,raw,mp3,wav,m4a,flac,ogg,mp4,mov,mkv,avi,webm
+                    --file-types=md,txt,none
   --exclude=LIST  Comma-separated directory basenames the scanner must never recurse into (in addition to
                   the always-skipped .git). Example: --exclude=node_modules,target,.mvn,build,dist,.gradle.
                   For names containing spaces, quote the WHOLE flag so the shell keeps it as one argument
@@ -118,10 +128,10 @@ Usage: ./scripts/start.sh --build
   --no-types      Aggregate mode only. Skip the by-extension table in the printed result. The aggregation
                   still runs; only the display is suppressed. Useful on huge trees where extension parsing
                   produces thousands of garbage rows that bury the size-bucket summary.
-  --producers=N   Number of scanner (folder-walker) threads. Default: 100 (tuned via --combinations-q for
-                  IO-bound scans; smaller values like 24-48 are faster on small/fast trees).
-  --consumers=N   Number of consumer drainer threads. Default: 48. For the duplicate locator this also sizes
-                  phase 2's ForkJoinPool that hashes the same-size candidate groups.
+  --producers=N   Number of scanner (folder-walker) threads. Default: max(8, NCPU*4); directory walking is
+                  IO-bound, so over-subscribing CPUs is intentional. Retune with --combinations.
+  --consumers=N   Number of consumer drainer threads. Default: max(4, NCPU*2). For the duplicate locator
+                  this also sizes phase 2's ForkJoinPool that hashes the same-size candidate groups.
   --queue-type=T  BlockingQueue implementation: abq (ArrayBlockingQueue, default, pre-allocated array, single
                   lock) or lbq (LinkedBlockingQueue, one allocation per put, separate put/take locks). ABQ
                   wins on long IO-bound scans by avoiding per-put Node garbage and the GC tail-latency spikes
@@ -149,6 +159,14 @@ Usage: ./scripts/start.sh --build
   path            Directory to scan (default: ../..)
 EOF
             exit 0 ;;
+        --mermaid)
+            # Undocumented dev helper: render the README's mermaid block to data-flow.png
+            # via mermaid-cli. Uses npx so no global install needed; requires Node + npm.
+            tmp="$(mktemp --suffix=.mmd)"
+            trap 'rm -f "$tmp"' EXIT
+            awk '/^```mermaid$/{f=1;next}/^```$/{f=0}f' README.md > "$tmp"
+            npx -y -p @mermaid-js/mermaid-cli mmdc -i "$tmp" -o data-flow.png
+            exit ;;
         -*)
             # Catch typos like "-out=..." (one dash) so they don't silently become the target path.
             echo "Unknown flag: $arg" >&2
@@ -180,13 +198,6 @@ if [ "$HARD_DELETE" = "1" ] && [ "$CONSUMER_FLAG" != "-Dconsumer=duplicates" ]; 
     exit 2
 fi
 
-# --min-size is meaningless outside duplicates mode; aggregate already reports
-# the by-size distribution on every file.
-if [ -n "$MIN_SIZE_RAW" ] && [ "$CONSUMER_FLAG" != "-Dconsumer=duplicates" ]; then
-    echo "Error: --min-size only applies with --consumer=duplicates." >&2
-    exit 2
-fi
-
 # Append consumer-specific flags into FLAGS for the single-run path.
 FLAGS="$FLAGS $CONSUMER_FLAG"
 if [ "$HARD_DELETE" = "1" ]; then
@@ -194,6 +205,9 @@ if [ "$HARD_DELETE" = "1" ]; then
 fi
 if [ -n "$MIN_SIZE_RAW" ]; then
     FLAGS="$FLAGS -Dminsize=$MIN_SIZE_RAW"
+fi
+if [ -n "$FILE_TYPES_RAW" ]; then
+    FLAGS="$FLAGS -Dfiletypes=$FILE_TYPES_RAW"
 fi
 # --exclude must NOT be concatenated into the FLAGS string: bash word-splits on
 # `java $FLAGS ...`, so a folder name like "Microsoft Visual Studio" would shatter

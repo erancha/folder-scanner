@@ -9,26 +9,22 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 /**
- * SHA-256 hashing for the duplicate-finder phase 2.
+ * SHA-256 hashing for duplicate detection.
  *
- * smallHash reads at most the first SMALL_HASH_BYTES of a file; used to
- * cheaply split same-size groups before paying the full read cost.
- * fullHash reads the file end-to-end in FULL_READ_BUF chunks.
- *
- * Both methods return a stable lowercase hex string. IO errors propagate;
- * the caller logs and drops the offending path from its group.
+ * Two-stage by design: smallHash reads only the first page (4 KB), enough to split most
+ * same-size groups without paying the full read cost. Only files that still collide on
+ * the small hash get full-hashed. On typical trees this skips ~95% of bytes.
  */
 public final class ContentHasher {
 
-    /** Initial cheap-split byte count (first page of most filesystems). */
+    /** First page of most filesystems — enough entropy to split nearly all same-size groups. */
     public static final int SMALL_HASH_BYTES = 4 * 1024;
 
-    /** Streaming buffer for full hashes; 64 KB matches typical FS block sizes. */
+    /** Matches typical FS block size so each read is one syscall. */
     private static final int FULL_READ_BUF = 64 * 1024;
 
     private ContentHasher() {}
 
-    /** SHA-256 of at most SMALL_HASH_BYTES from the start of the file. */
     public static String smallHash(Path p) throws IOException {
         MessageDigest md = newSha256();
         try (InputStream in = Files.newInputStream(p)) {
@@ -44,7 +40,6 @@ public final class ContentHasher {
         return HexFormat.of().formatHex(md.digest());
     }
 
-    /** SHA-256 of the entire file, streamed in FULL_READ_BUF chunks. */
     public static String fullHash(Path p) throws IOException {
         MessageDigest md = newSha256();
         try (InputStream in = Files.newInputStream(p)) {

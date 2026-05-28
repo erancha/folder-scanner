@@ -18,132 +18,98 @@ import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 
 /**
- * Consumer that locates files with identical content (regardless of name).
+ * Locates files with identical content and emits a shell script that quarantines or deletes the
+ * redundant copies.
  *
- * Phase 1 (concurrent with the scan): bucket every incoming PathFileInfo
- * by size. Files whose size is unique in the tree cannot be duplicates of
- * anything and are dropped in phase 2 without ever being read.
- *
- * Phase 2 (after every drainer has taken POISON): for each same-size group
- * with two or more entries, hash the first 4 KB to cheaply split, then
- * full-hash the surviving subgroups. Confirmed duplicate groups are
- * collected into an internal report sorted by descending wasted bytes.
- * Phase 2 runs in a dedicated ForkJoinPool sized to consumerThreads.
- *
- * Phase 3 (script generation): ScriptWriter emits the shell script to
- * the path resolved from -Dout, defaulting to remove-duplicates.sh in cwd.
+ * Three phases: (1 - consume) Concurrent with the scan: group files by size. Multiple drainer
+ * threads — per-message work is tiny but high-frequency; one drainer would bottleneck before the
+ * producer's queue.put() ever blocks. (2 - runPhase2) After POISON: only buckets with >= 2 files
+ * are examined. Small-hash (first 4 KB) narrows each bucket; survivors are then full-hashed, so
+ * most large files are never read in full. (3) ScriptWriter emits the shell script for the user to
+ * inspect.
  */
 public final class DuplicateLocator implements FileConsumer {
 
-    /** Application queue: handed in by the composition root; drained by this consumer. */
     private final BlockingQueue<FileInfo> queue;
-
-    /** Number of drainer threads; one POISON per drainer is expected. */
-    private final int consumerThreads;
-
-    /** Fixed pool of long-running drainers; each loops until POISON. */
-    private final ExecutorService pool;
-
-    /** Where the generated script should be written; from -Dout, resolved by OutPathResolver. */
+    private final ThreadPoolExecutor drainersPool;
     private final String outPathRaw;
-
-    /** When true, generated script uses rm; when false, uses mv to a bin. */
     private final boolean hardDelete;
-
-    /** Absolute path of the scanned root; written into the generated script header. */
     private final Path sourceTree;
 
-    /** Minimum file size in bytes to consider; smaller files are dropped before bucketing. 0 = no filter. */
-    private final long minSizeBytes;
-
-    /** Files dropped by the minSize filter; reported once at end of run. */
-    private final LongAdder filteredCount = new LongAdder();
-    private final LongAdder filteredBytes = new LongAdder();
-
-    /** Phase 1 grouping: same-size paths share a bucket. */
+    // One bucket per file size: the key (Long) is the file size; the value (Queue<Path>) holds the
+    // paths of all files with that size.
     private final ConcurrentHashMap<Long, Queue<Path>> pathsBySize = new ConcurrentHashMap<>();
-
-    /** Running totals for the composition-root headline. */
     private final LongAdder totalFiles = new LongAdder();
     private final LongAdder totalBytes = new LongAdder();
 
-    /** Phase 1 wall time, captured in awaitAndReport for the script header. */
-    private long phase1ElapsedMs = -1;
+    private long phase1StartNs;
+    private long phase1ElapsedMs;
+    private long phase2ElapsedMs;
 
-    /** Phase 2 wall time; populated by runPhase2. */
-    private long phase2ElapsedMs = -1;
-
-    /**
-     * Wires the consumer to a queue and creates a fixed drainer pool. consumerThreads
-     * must be at least 1; outPathRaw is the raw -Dout value (null is treated as
-     * empty); hardDelete switches the generated script from mv-to-bin to rm;
-     * sourceTree is the absolute root path written into the script header;
-     * minSizeBytes is the minimum file size to consider (0 = no filter).
-     */
-    public DuplicateLocator(BlockingQueue<FileInfo> queue, int consumerThreads,
-            String outPathRaw, boolean hardDelete, Path sourceTree, long minSizeBytes) {
-        if (consumerThreads < 1) throw new IllegalArgumentException("consumerThreads must be >= 1");
-        if (minSizeBytes < 0) throw new IllegalArgumentException("minSizeBytes must be >= 0");
+    public DuplicateLocator(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
+            boolean hardDelete, Path sourceTree) {
+        if (consumerThreads < 1)
+            throw new IllegalArgumentException("consumerThreads must be >= 1");
         this.queue = queue;
-        this.consumerThreads = consumerThreads;
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
-        this.minSizeBytes = minSizeBytes;
-        this.pool = Executors.newFixedThreadPool(consumerThreads);
+        this.drainersPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
     }
 
-    @Override public int consumerCount() { return consumerThreads; }
+    @Override
+    public int consumerCount() {
+        return drainersPool.getCorePoolSize();
+    }
 
     @Override
     public FileInfoFactory factory() {
-        return (path, attrs) -> new PathFileInfo(
-                path, attrs.size(), attrs.lastModifiedTime().toMillis());
+        return (path, attrs) -> new PathFileInfo(path, attrs.size(),
+                attrs.lastModifiedTime().toMillis());
     }
 
     @Override
     public void start() {
-        for (int i = 0; i < consumerThreads; i++) pool.submit(this::consume);
+        phase1StartNs = System.nanoTime();
+        for (int i = 0, n = drainersPool.getCorePoolSize(); i < n; i++) {
+            drainersPool.submit(this::consume);
+        }
     }
 
     /**
-     * Drainer loop: bucket each PathFileInfo by size and exit on POISON. Exhaustive switch over
-     * the sealed FileInfo hierarchy lets the compiler enforce that every variant is handled —
-     * a new permitted subtype added to FileInfo will fail to compile here instead of being
-     * silently dropped. TypeFileInfo is rejected explicitly because this consumer's factory()
-     * only produces PathFileInfo; reaching that arm means the consumer was wired to a producer
-     * of the wrong shape. Package-private so the unit test can drive it directly.
+     * Drainer loop: takes messages from the queue shared from the producer and adds each path to
+     * its size-bucket. Exits on PoisonPill; any other variant means a producer wiring bug.
+     *
+     * Switch is over the sealed FileInfo type — compiler enforces exhaustiveness, so any future
+     * variant added to FileInfo becomes a compile error here until handled.
      */
     void consume() {
         try {
             while (true) {
                 FileInfo f = queue.take();
                 switch (f) {
-                    case PathFileInfo p -> {
-                        // Min-size filter: drop early so small files never enter bucketing or hashing.
-                        // totalFiles/totalBytes count only files actually considered for duplication.
-                        if (p.size() < minSizeBytes) {
-                            filteredCount.increment();
-                            filteredBytes.add(p.size());
-                        } else {
-                            totalFiles.increment();
-                            totalBytes.add(p.size());
-                            pathsBySize
-                                    .computeIfAbsent(p.size(), k -> new ConcurrentLinkedQueue<>())
-                                    .add(p.path());
-                        }
-                    }
-                    case PoisonPill ignored -> { return; }
-                    case TypeFileInfo ignored -> throw new IllegalStateException(
-                            "DuplicateLocator received TypeFileInfo; its factory() produces only PathFileInfo");
+                case PathFileInfo p -> {
+                    totalFiles.increment();
+                    totalBytes.add(p.size());
+                    // Many drainers may add to the same bucket at once; ConcurrentLinkedQueue lets
+                    // those add()s run in parallel instead of one thread waiting for another.
+                    pathsBySize.computeIfAbsent(p.size(), k -> new ConcurrentLinkedQueue<>())
+                            .add(p.path());
+                }
+                case PoisonPill ignored -> {
+                    return;
+                }
+                case TypeFileInfo ignored -> throw new IllegalStateException(
+                        "DuplicateLocator received TypeFileInfo; its factory() produces only "
+                                + "PathFileInfo");
                 }
             }
         } catch (InterruptedException e) {
@@ -153,30 +119,22 @@ public final class DuplicateLocator implements FileConsumer {
 
     @Override
     public void awaitAndReport(PrintStream out) throws InterruptedException {
-        long t1 = System.nanoTime();
-        pool.shutdown();
-        if (!pool.awaitTermination(1, TimeUnit.HOURS)) {
+        drainersPool.shutdown();
+        if (!drainersPool.awaitTermination(1, TimeUnit.HOURS)) {
             throw new IllegalStateException("duplicate locator did not terminate within 1 hour");
         }
-        phase1ElapsedMs = (System.nanoTime() - t1) / 1_000_000L;
+        // All drainers have exited; record phase-1 elapsed.
+        phase1ElapsedMs = (System.nanoTime() - phase1StartNs) / 1_000_000L;
 
-        if (minSizeBytes > 0) {
-            out.printf("Filtered (size < %s): %,d files (%s) — not considered.%n",
-                    com.example.folderscanner.data.Format.humanBytes(minSizeBytes),
-                    filteredCount.sum(),
-                    com.example.folderscanner.data.Format.humanBytes(filteredBytes.sum()));
-        }
-
+        // Phase 2: confirm size-collisions.
         DuplicateReport report = runPhase2();
 
-        // Nothing to quarantine - skip writing an empty script. The headline below
-        // still prints zeros so the user sees the run completed and confirmed no
-        // duplicates rather than wondering whether the consumer ran at all.
         if (report.groupCount() == 0) {
             out.println("Duplicates: none found. No script written.");
             return;
         }
 
+        // Phase 3: write the script for the user to inspect.
         Path scriptPath = OutPathResolver.resolve(outPathRaw, "remove-duplicates.sh");
         try {
             ScriptWriter.write(scriptPath, sourceTree, report, hardDelete);
@@ -189,30 +147,20 @@ public final class DuplicateLocator implements FileConsumer {
         out.printf("Wrote %s — INSPECT BEFORE RUNNING.%n", scriptPath.toAbsolutePath());
     }
 
-    /**
-     * Runs phase 2 inside a fresh ForkJoinPool sized to consumerThreads.
-     * For each size group with at least two entries, computes the small
-     * hash of the first SMALL_HASH_BYTES; same-small-hash subgroups still
-     * holding 2+ entries then get full-hashed. Files of size 0 are dropped
-     * (empty files trivially "duplicate" but quarantining them is rarely
-     * useful). IO failures drop the offending path from its group.
-     */
+    // Phase 2: confirm size-collisions by hashing (the only phase that reads file content).
     private DuplicateReport runPhase2() {
         long t0 = System.nanoTime();
         List<DuplicateReport.Group> confirmed = new ArrayList<>();
 
-        ForkJoinPool phase2Pool = new ForkJoinPool(consumerThreads);
-        try {
-            List<DuplicateReport.Group> groups = phase2Pool.submit(() ->
-                pathsBySize.entrySet().parallelStream()
-                    .filter(e -> e.getKey() > 0)                    // drop empty files
-                    .filter(e -> e.getValue().size() >= 2)          // only size collisions
+        // Phase 2 is IO-bound (hashing files); size the pool from CPU count. (TODO: optimize?)
+        int phase2Parallelism = Runtime.getRuntime().availableProcessors() * 2;
+        try (ForkJoinPool phase2Pool = new ForkJoinPool(phase2Parallelism)) {
+            List<DuplicateReport.Group> groups = phase2Pool.submit(() -> pathsBySize.entrySet()
+                    .parallelStream().filter(e -> e.getKey() > 0) // drop empty files
+                    .filter(e -> e.getValue().size() >= 2) // only size collisions
                     .flatMap(e -> confirmGroup(e.getKey(), new ArrayList<>(e.getValue())).stream())
-                    .collect(Collectors.toList())
-            ).join();
+                    .collect(Collectors.toList())).join();
             confirmed.addAll(groups);
-        } finally {
-            phase2Pool.shutdown();
         }
 
         confirmed.sort(Comparator.<DuplicateReport.Group>comparingLong(
@@ -228,9 +176,7 @@ public final class DuplicateLocator implements FileConsumer {
                 phase1ElapsedMs, phase2ElapsedMs);
     }
 
-    /** Hash one same-size group; returns zero or more confirmed duplicate sub-groups. */
     private List<DuplicateReport.Group> confirmGroup(long size, List<Path> candidates) {
-        // 1. small hash split
         Map<String, List<Path>> bySmall = new HashMap<>();
         for (Path p : candidates) {
             try {
@@ -239,21 +185,23 @@ public final class DuplicateLocator implements FileConsumer {
                 System.err.println("skip (small-hash failed): " + p + " — " + e.getMessage());
             }
         }
-        // 2. full hash for surviving subgroups
         List<DuplicateReport.Group> out = new ArrayList<>();
         for (List<Path> sub : bySmall.values()) {
-            if (sub.size() < 2) continue;
+            if (sub.size() < 2)
+                continue;
             Map<String, List<Path>> byFull = new HashMap<>();
             for (Path p : sub) {
                 try {
-                    byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>()).add(p);
+                    byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>())
+                            .add(p);
                 } catch (IOException e) {
                     System.err.println("skip (full-hash failed): " + p + " — " + e.getMessage());
                 }
             }
             for (List<Path> group : byFull.values()) {
-                if (group.size() < 2) continue;
-                // Sort each surviving group lexicographically for deterministic "first kept" later.
+                if (group.size() < 2)
+                    continue;
+                // Lexicographic sort so the keeper (index 0 in the script) is deterministic.
                 group.sort(Comparator.comparing(Path::toString));
                 out.add(new DuplicateReport.Group(size, group));
             }
@@ -261,6 +209,18 @@ public final class DuplicateLocator implements FileConsumer {
         return out;
     }
 
-    @Override public long totalFilesSeen() { return totalFiles.sum(); }
-    @Override public long totalBytesSeen() { return totalBytes.sum(); }
+    @Override
+    public long totalFilesSeen() {
+        return totalFiles.sum();
+    }
+
+    @Override
+    public long totalBytesSeen() {
+        return totalBytes.sum();
+    }
+
+    /** Phase-1 wall-clock in ms; valid after awaitAndReport returns. Package-private for tests. */
+    long phase1ElapsedMs() {
+        return phase1ElapsedMs;
+    }
 }

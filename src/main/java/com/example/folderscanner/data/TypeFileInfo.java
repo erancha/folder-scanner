@@ -1,9 +1,8 @@
 package com.example.folderscanner.data;
 
 /**
- * Variant carrying the file's extension. Used by consumers that aggregate
- * by file type without needing the path (saves memory at queue scale).
- * extension is lowercase or the literal "(none)" for files without one.
+ * Carries only the file's extension, not its path — chosen by aggregating consumers
+ * to keep per-message memory small at queue scale (millions of messages per scan).
  */
 public record TypeFileInfo(String extension, long size, long lastModifiedMillis)
         implements FileInfo {}

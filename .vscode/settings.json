@@ -1,3 +1,19 @@
 {
-  "java.configuration.updateBuildConfiguration": "interactive"
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.format.settings.url": ".vscode/eclipse-formatter.xml",
+  "java.format.settings.profile": "folder-scanner",
+  "[java]": {
+    "editor.formatOnSave": true,
+    "editor.rulers": [100],
+    "editor.wordWrapColumn": 100,
+    "editor.wordWrap": "wordWrapColumn"
+  },
+  "cSpell.words": [
+    "basenames",
+    "folderscanner",
+    "harddelete",
+    "NCPU",
+    "notypes",
+    "Widevine"
+  ]
 }

@@ -3,3 +3,4 @@ docs/superpowers/
 docs/*-eval-*.md
 trash/
 remove-duplicates.sh
+scripts/tmp.sh
