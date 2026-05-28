@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Paths;
+import java.util.Locale;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -104,6 +105,35 @@ final class FileExtensionsTest {
         // If "*" appears in the list, the rest is redundant — treat the whole list as "all".
         // Prevents a confusing config like `--file-extensions=txt,*` from quietly excluding pdf.
         assertTrue(FileExtensions.parse("txt,*,pdf").isAll());
+    }
+
+    @Test
+    void extensionOf_yields_ascii_lowercase_under_turkish_default_locale() {
+        // toLowerCase() with no Locale uses Locale.getDefault(); under tr_TR the ASCII 'I'
+        // lower-cases to 'ı' (dotless), not 'i'. That breaks every downstream equality check
+        // against ASCII keys like "tif". Pin Locale.ROOT for deterministic ASCII folding.
+        Locale original = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+        try {
+            assertEquals("tif", FileExtensions.extensionOf(Paths.get("photo.TIF")));
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    @Test
+    void parse_yields_ascii_lowercase_tokens_under_turkish_default_locale() {
+        // Mirrors the extensionOf guarantee on the CLI side: a user passing
+        // --file-extensions=TIF on a tr_TR host must still match files whose
+        // extensionOf() returns the ASCII "tif".
+        Locale original = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+        try {
+            FileExtensions.IncludeSet set = FileExtensions.parse("TIF");
+            assertTrue(set.matches("tif"));
+        } finally {
+            Locale.setDefault(original);
+        }
     }
 
     @Test

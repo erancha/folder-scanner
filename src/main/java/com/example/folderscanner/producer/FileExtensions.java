@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -23,13 +24,14 @@ public final class FileExtensions {
     /**
      * Lowercase extension, or "(none)" for dotfiles, extension-less names, and trailing dots.
      * Behavior preserved verbatim from the original Aggregator.extensionOf so the by-extension
-     * table doesn't shift after the move.
+     * table doesn't shift after the move. Locale.ROOT pins ASCII case folding so a tr_TR JVM
+     * doesn't fold "TIF" to "tıf" (dotless) and split the bucket from its lowercase peers.
      */
     public static String extensionOf(Path file) {
         String name = file.getFileName().toString();
         int dot = name.lastIndexOf('.');
         if (dot <= 0 || dot == name.length() - 1) return NONE;
-        return name.substring(dot + 1).toLowerCase();
+        return name.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -48,7 +50,7 @@ public final class FileExtensions {
             if (t.equals("*")) return IncludeSet.ALL;
             if (t.startsWith(".")) t = t.substring(1);
             if (t.isEmpty()) continue;
-            t = t.toLowerCase();
+            t = t.toLowerCase(Locale.ROOT);
             if (t.equals("none")) tokens.add(NONE);
             else tokens.add(t);
         }
