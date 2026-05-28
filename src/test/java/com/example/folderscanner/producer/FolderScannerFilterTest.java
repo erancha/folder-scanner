@@ -119,6 +119,23 @@ final class FolderScannerFilterTest {
         assertEquals(0, scanner.filteredByExtensionCount());
     }
 
+    @Test
+    void scan_on_a_non_directory_root_enqueues_nothing_without_throwing(@TempDir Path root)
+            throws Exception {
+        // A non-directory root is skipped like any other unreadable entry (DEBUG-logged), per the
+        // walker's debug-and-continue error model. Main owns the user-facing rejection + exit code;
+        // scan() does not re-reject.
+        Path file = root.resolve("not-a-dir.txt");
+        writeBytes(file, 10);
+
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
+                Set.of(), FileExtensions.IncludeSet.ALL, 0);
+        Set<String> names = drainNames(scanner, file, queue);
+
+        assertTrue(names.isEmpty(), "non-directory root should enqueue no files; was " + names);
+    }
+
     // ---- helpers ----
 
     /** Writes `size` zero bytes at `p`. */

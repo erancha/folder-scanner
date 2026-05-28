@@ -60,9 +60,7 @@ public final class FolderScanner {
     }
 
     /** Blocks until every file has been enqueued and every subtree task has completed. */
-    public void scan(Path root) throws IOException, InterruptedException {
-        if (!Files.isDirectory(root))
-            throw new IOException("not a directory: " + root);
+    public void scan(Path root) throws InterruptedException {
         try {
             scanWorkers.invoke(new ScanTask(root));
         } catch (RuntimeException e) {

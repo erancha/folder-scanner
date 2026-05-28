@@ -31,15 +31,17 @@ public final class Format {
         String t = s.trim().toUpperCase();
         if (t.isEmpty()) return 0;
         long mult = 1;
-        String[][] units = { {"TB", String.valueOf(1024L*1024*1024*1024)},
-                             {"GB", String.valueOf(1024L*1024*1024)},
-                             {"MB", String.valueOf(1024L*1024)},
-                             {"KB", String.valueOf(1024L)},
-                             {"B",  "1"} };
-        for (String[] u : units) {
-            if (t.endsWith(u[0])) {
-                mult = Long.parseLong(u[1]);
-                t = t.substring(0, t.length() - u[0].length()).trim();
+        // TB before B: every unit ends in "B", so the longer suffixes must be tested first.
+        for (String unit : new String[] {"TB", "GB", "MB", "KB", "B"}) {
+            if (t.endsWith(unit)) {
+                mult = switch (unit) {
+                    case "TB" -> 1024L * 1024 * 1024 * 1024;
+                    case "GB" -> 1024L * 1024 * 1024;
+                    case "MB" -> 1024L * 1024;
+                    case "KB" -> 1024L;
+                    default -> 1L;
+                };
+                t = t.substring(0, t.length() - unit.length()).trim();
                 break;
             }
         }
