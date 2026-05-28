@@ -233,7 +233,10 @@ public final class DuplicateLocator implements FileConsumer {
         return totalBytes.sum();
     }
 
-    /** Phase-1 wall-clock in ms; valid after awaitAndReport returns. Package-private for the testing framework. */
+    /**
+     * Phase-1 wall-clock in ms; valid after awaitAndReport returns. Package-private for the testing
+     * framework.
+     */
     long phase1ElapsedMs() {
         return phase1ElapsedMs;
     }

@@ -11,13 +11,8 @@ import java.util.Set;
 /**
  * Typed snapshot of the runtime configuration parsed from -D system properties.
  *
- * Built once at the CLI boundary by {@link #parse(Properties, int)} and then handed down to the
- * producer / consumer wiring in Main. The factory aggregates every validation failure into one
- * exception so the user sees all CLI mistakes from a single run rather than fixing them one at a
- * time.
- *
- * Keeping the parse logic in this single record stops -D string handling from leaking into the
- * rest of the program and lets the queue / consumer enums own the closed set of legal values.
+ * {@link #parse(Properties, int)} aggregates every validation failure into one exception so the
+ * user sees all CLI mistakes from a single run rather than fixing them one at a time.
  */
 public record Config(
         int queueSize,
@@ -34,10 +29,9 @@ public record Config(
 
     /**
      * Reads every supported -D property from {@code props}, applying defaults for missing keys
-     * and collecting all validation failures into a single IllegalArgumentException.
-     *
-     * {@code ncpu} sizes the thread-count defaults so callers (production and tests) decide the
-     * value rather than having {@code Runtime.getRuntime().availableProcessors()} pinned inside.
+     * and collecting all validation failures into a single IllegalArgumentException. {@code ncpu}
+     * is a parameter (not {@code Runtime.getRuntime().availableProcessors()}) so the same config
+     * can be reproduced on a different host.
      */
     public static Config parse(Properties props, int ncpu) {
         List<String> errors = new ArrayList<>();

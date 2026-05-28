@@ -1,22 +1,16 @@
 package com.example.folderscanner.config;
 
-/**
- * Which consumer pipeline runs against the scanned files.
- *
- * Lives as a typed enum (rather than a free-form string) so the CLI parse and the
- * consumer-construction switch in Main reference the same closed set of values.
- */
+/** Which consumer pipeline runs against the scanned files. */
 public enum ConsumerKind {
     AGGREGATE, DUPLICATES;
 
-    /** Lowercased name used on the CLI and in the run banner. */
     public String cliName() {
         return name().toLowerCase();
     }
 
     /**
-     * Parse of the -Dconsumer value. Caller appends a complaint to {@code errors} for unknown
-     * input and recovers with the {@code AGGREGATE} default so other validation can continue.
+     * Recovers with the {@code AGGREGATE} default on unknown input so other validation can
+     * continue; the caller's {@code errors} list carries the complaint forward.
      */
     static ConsumerKind parseOrCollect(String raw, java.util.List<String> errors) {
         if (raw == null) return AGGREGATE;

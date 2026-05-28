@@ -42,13 +42,11 @@ public final class Aggregator implements FileConsumer {
     private final ConcurrentHashMap<String, LongAdder> countByExtension = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LongAdder> bytesByExtension = new ConcurrentHashMap<>();
 
-    // Size-bucket keys are fixed at compile time, so a plain array indexed by ordinal() is
-    // simpler and faster than another CHM lookup per file.
+    // Plain array (not a CHM) because the SizeBucket key space is closed at compile time.
     private final LongAdder[] countBySize = new LongAdder[SizeBucket.values().length];
     private final LongAdder[] bytesBySize = new LongAdder[SizeBucket.values().length];
 
-    // Cumulative date buckets — e.g. today ⊂ this week ⊂ this month ⊂ .. (i.e a file modified today
-    // is also in this week, month, ..). Subtract for mutually-exclusive counts.
+    // Cumulative: today ⊂ week ⊂ month ⊂ year. Subtract for mutually-exclusive counts.
     private final LongAdder countToday = new LongAdder();
     private final LongAdder countWeek = new LongAdder();
     private final LongAdder countMonth = new LongAdder();
@@ -245,12 +243,10 @@ public final class Aggregator implements FileConsumer {
 
     private static void printResult(PrintStream out, AggregationResult r) {
         out.println("\nBy extension:");
-        // Display order is bytes-desc (largest footprint first) so the biggest contributors
-        // surface at the top of the table. The snapshot's own map order (alphabetical) is
-        // useful for diffs but burying a 79 GB extension behind a 5 MB one is the opposite
-        // of what a user scanning the output is looking for.
-        Map<String, Long> countsByExtSorted =
-                byBytesDescending(r.countByExtension(), r.bytesByExtension());
+        // Sorted bytes-desc for display so the biggest contributors surface first; the snapshot's
+        // alphabetical order is kept for the by-size / by-date tables and for stable diffs.
+        Map<String, Long> countsByExtSorted = byBytesDescending(r.countByExtension(),
+                r.bytesByExtension());
         out.print(buildTable("extension", 16, countsByExtSorted, r.bytesByExtension(),
                 java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())
                         .indent(TABLE_INDENT));
@@ -266,11 +262,10 @@ public final class Aggregator implements FileConsumer {
     }
 
     /**
-     * Returns {@code counts} reshaped as a LinkedHashMap whose iteration order is bytes-desc
-     * by extension, with the extension name as the secondary ascending tiebreaker so the same
-     * input always produces the same table. Extensions absent from {@code bytes} contribute
-     * zero bytes (defensive: an extension present in counts but missing from bytes is a
-     * builder bug, but ranking it last is preferable to a NullPointerException at print-time).
+     * Reorders {@code counts} by descending byte count, with extension name as the ascending
+     * tiebreaker so the same input always produces the same table. Extensions missing from
+     * {@code bytes} are ranked last with zero bytes (a builder bug, but preferable to NPE during
+     * print).
      */
     static Map<String, Long> byBytesDescending(Map<String, Long> counts, Map<String, Long> bytes) {
         List<Map.Entry<String, Long>> ordered = new ArrayList<>(counts.entrySet());
@@ -298,9 +293,7 @@ public final class Aggregator implements FileConsumer {
             long byteCount = bytes.getOrDefault(key, 0L);
             sb.append(String.format(fmt, keyLabel.apply(key), count, Format.humanBytes(byteCount)));
         }
-        // Same total expected on every table — the count column of the by-extension and by-size
-        // rows must sum to it; the by-date rows can't (they're cumulative), but the printed total
-        // still anchors the table to one authoritative number.
+        // by-extension and by-size rows sum to this total; by-date rows don't (they're cumulative).
         sb.append(String.format(fmt, "total", totalCount, Format.humanBytes(totalBytes)));
         return sb.toString();
     }

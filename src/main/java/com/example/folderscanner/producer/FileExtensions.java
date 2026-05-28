@@ -9,10 +9,9 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Shared filename-extension semantics: extension extraction plus the parser/matcher for
- * the producer's --file-extensions include list. Lives in producer/ because the producer is
- * the primary caller (filter before enqueue); Aggregator delegates here so there is one
- * definition of "extension-less" instead of two slightly different ones.
+ * Shared filename-extension semantics: extension extraction plus the parser/matcher for the
+ * producer's --file-extensions include list. Single source of truth for what "extension-less"
+ * means across producer-side filtering and consumer-side aggregation.
  */
 public final class FileExtensions {
 
@@ -23,9 +22,8 @@ public final class FileExtensions {
 
     /**
      * Lowercase extension, or "(none)" for dotfiles, extension-less names, and trailing dots.
-     * Behavior preserved verbatim from the original Aggregator.extensionOf so the by-extension
-     * table doesn't shift after the move. Locale.ROOT pins ASCII case folding so a tr_TR JVM
-     * doesn't fold "TIF" to "tıf" (dotless) and split the bucket from its lowercase peers.
+     * Locale.ROOT pins ASCII case folding so a tr_TR JVM doesn't fold "TIF" to "tıf" (dotless)
+     * and split the bucket from its lowercase peers.
      */
     public static String extensionOf(Path file) {
         String name = file.getFileName().toString();

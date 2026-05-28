@@ -26,9 +26,9 @@ import org.slf4j.LoggerFactory;
 public final class FolderScanner {
 
     /**
-     * Channel for recoverable per-entry IO failures (unreadable directories or attributes).
-     * These are expected during a deep walk — locked system folders, denied ACLs, transient
-     * races — so they are emitted at DEBUG and stay below the default Logback threshold.
+     * Channel for recoverable per-entry IO failures (unreadable directories or attributes). These
+     * are expected during a deep walk — locked system folders, denied ACLs, transient races — so
+     * they are emitted at DEBUG and stay below the default Logback threshold.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(FolderScanner.class);
 
@@ -45,7 +45,8 @@ public final class FolderScanner {
     private final LongAdder filteredByExtensionBytes = new LongAdder();
 
     public FolderScanner(BlockingQueue<FileInfo> queue, int parallelism, FileInfoFactory factory,
-            Set<String> skipDirNames, FileExtensions.IncludeSet includeExtensions, long minSizeBytes) {
+            Set<String> skipDirNames, FileExtensions.IncludeSet includeExtensions,
+            long minSizeBytes) {
         if (parallelism < 1)
             throw new IllegalArgumentException("parallelism must be >= 1");
         if (minSizeBytes < 0)
@@ -77,10 +78,21 @@ public final class FolderScanner {
         scanWorkers.shutdown();
     }
 
-    public long filteredBySizeCount() { return filteredBySizeCount.sum(); }
-    public long filteredBySizeBytes() { return filteredBySizeBytes.sum(); }
-    public long filteredByExtensionCount() { return filteredByExtensionCount.sum(); }
-    public long filteredByExtensionBytes() { return filteredByExtensionBytes.sum(); }
+    public long filteredBySizeCount() {
+        return filteredBySizeCount.sum();
+    }
+
+    public long filteredBySizeBytes() {
+        return filteredBySizeBytes.sum();
+    }
+
+    public long filteredByExtensionCount() {
+        return filteredByExtensionCount.sum();
+    }
+
+    public long filteredByExtensionBytes() {
+        return filteredByExtensionBytes.sum();
+    }
 
     /** One task per directory: enumerate children, fork subdirs, enqueue regular files, join. */
     private final class ScanTask extends RecursiveAction {
@@ -120,7 +132,7 @@ public final class FolderScanner {
                         forkedSubtasks.add(subtask);
                     } else if (attrs.isRegularFile()) {
                         if (attrs.size() < minSizeBytes) {
-                            // Size-first: one branch on already-loaded attrs, no String work.
+                            // Check size before extension: branch on already-loaded attrs.
                             filteredBySizeCount.increment();
                             filteredBySizeBytes.add(attrs.size());
                             continue;

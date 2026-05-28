@@ -104,7 +104,6 @@ public final class Main {
 
         try {
             scanner.scan(root);
-            // One POISON per consumer; the queue is FIFO so pills come after every real file.
             for (int i = 0; i < consumer.drainerCount(); i++) {
                 queue.put(FileInfo.POISON);
             }
@@ -151,8 +150,8 @@ public final class Main {
     }
 
     /**
-     * Periodic stats. Queue depth is the most informative signal: pinned at capacity means
-     * consumers are the bottleneck; pinned near zero means producers are.
+     * Queue depth is the most informative signal: pinned at capacity means consumers are the
+     * bottleneck; pinned near zero means producers are.
      */
     private static void printStats(BlockingQueue<FileInfo> queue, long startNs, int queueCapacity) {
         long elapsedS = (System.nanoTime() - startNs) / 1_000_000_000L;
