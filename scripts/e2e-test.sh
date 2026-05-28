@@ -105,7 +105,7 @@ build_fixture
 # counts). Individual tests can pass a different --exclude to opt out.
 EXCLUDE="--exclude=.git,node_modules"
 
-echo "Fixture: $FIXTURE  (6 files total; 5 visible under default EXCLUDE: 3 in LE_1KB incl. one dup pair, 1 in LE_1MB, 1 in LE_1GB; 1 under node_modules/)"
+echo "Fixture: $FIXTURE  (6 files total; 5 visible under default EXCLUDE: 3 in LE_1KB incl. one dup pair, 1 in LE_1MB, 1 in LE_20MB; 1 under node_modules/)"
 echo
 
 # ---- test 1: aggregate prints the right total file count -------------------
@@ -119,8 +119,8 @@ LE1KB_ROW="$(printf "%s" "$OUT" | grep -E '^\s*<= 1KB\b' || true)"
 assert_contains "aggregate_bucket_le1kb_count_3" "$LE1KB_ROW" " 3 "
 LE1MB_ROW="$(printf "%s" "$OUT" | grep -E '^\s*> 1KB and <= 1MB\b' || true)"
 assert_contains "aggregate_bucket_le1mb_count_1" "$LE1MB_ROW" " 1 "
-LE1GB_ROW="$(printf "%s" "$OUT" | grep -E '^\s*> 1MB and <= 1GB\b' || true)"
-assert_contains "aggregate_bucket_le1gb_count_1" "$LE1GB_ROW" " 1 "
+LE20MB_ROW="$(printf "%s" "$OUT" | grep -E '^\s*> 1MB and <= 20MB\b' || true)"
+assert_contains "aggregate_bucket_le20mb_count_1" "$LE20MB_ROW" " 1 "
 
 # ---- test 3: duplicates mode generates a script with the right group count -
 SCRIPT="$SCRATCH/remove-duplicates.sh"

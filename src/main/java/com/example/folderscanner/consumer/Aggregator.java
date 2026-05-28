@@ -246,7 +246,13 @@ public final class Aggregator implements FileConsumer {
 
     private static void printResult(PrintStream out, AggregationResult r) {
         out.println("\nBy extension:");
-        out.print(buildTable("extension", 16, r.countByExtension(), r.bytesByExtension(),
+        // Display order is bytes-desc (largest footprint first) so the biggest contributors
+        // surface at the top of the table. The snapshot's own map order (alphabetical) is
+        // useful for diffs but burying a 79 GB extension behind a 5 MB one is the opposite
+        // of what a user scanning the output is looking for.
+        Map<String, Long> countsByExtSorted =
+                byBytesDescending(r.countByExtension(), r.bytesByExtension());
+        out.print(buildTable("extension", 16, countsByExtSorted, r.bytesByExtension(),
                 java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())
                         .indent(TABLE_INDENT));
 
@@ -258,6 +264,27 @@ public final class Aggregator implements FileConsumer {
         out.print(buildTable("date", 16, r.countByDateBucket(), r.bytesByDateBucket(),
                 java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())
                         .indent(TABLE_INDENT));
+    }
+
+    /**
+     * Returns {@code counts} reshaped as a LinkedHashMap whose iteration order is bytes-desc
+     * by extension, with the extension name as the secondary ascending tiebreaker so the same
+     * input always produces the same table. Extensions absent from {@code bytes} contribute
+     * zero bytes (defensive: an extension present in counts but missing from bytes is a
+     * builder bug, but ranking it last is preferable to a NullPointerException at print-time).
+     */
+    static Map<String, Long> byBytesDescending(Map<String, Long> counts, Map<String, Long> bytes) {
+        List<Map.Entry<String, Long>> ordered = new ArrayList<>(counts.entrySet());
+        ordered.sort((a, b) -> {
+            int cmp = Long.compare(bytes.getOrDefault(b.getKey(), 0L),
+                    bytes.getOrDefault(a.getKey(), 0L));
+            return cmp != 0 ? cmp : a.getKey().compareTo(b.getKey());
+        });
+        Map<String, Long> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Long> e : ordered) {
+            out.put(e.getKey(), e.getValue());
+        }
+        return out;
     }
 
     private static <K> String buildTable(String keyHeader, int keyWidth,

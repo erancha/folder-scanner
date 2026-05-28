@@ -8,6 +8,9 @@ import java.nio.file.Paths;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -154,6 +157,60 @@ final class AggregatorTest {
         queue.put(new PathFileInfo(Paths.get("/tmp/x"), 100L, 0L));
         queue.put(FileInfo.POISON);
         assertThrows(IllegalStateException.class, a::consume);
+    }
+
+    // ---- byBytesDescending: extension-table display order ------------------
+
+    @Test
+    void byBytesDescending_orders_extensions_by_bytes_high_to_low() {
+        Map<String, Long> counts = new HashMap<>();
+        counts.put("jpg", 100L);
+        counts.put("mp4", 5L);
+        counts.put("txt", 1000L);
+        Map<String, Long> bytes = new HashMap<>();
+        bytes.put("jpg", 10L);
+        bytes.put("mp4", 1_000_000L);
+        bytes.put("txt", 500L);
+
+        Map<String, Long> sorted = Aggregator.byBytesDescending(counts, bytes);
+
+        // Iteration order is bytes-desc: mp4 (1MB) > txt (500B) > jpg (10B).
+        assertEquals(List.of("mp4", "txt", "jpg"), new ArrayList<>(sorted.keySet()));
+        // Values are the original counts (not bytes) — the table still wants counts in this map.
+        assertEquals(5L, sorted.get("mp4"));
+        assertEquals(1000L, sorted.get("txt"));
+        assertEquals(100L, sorted.get("jpg"));
+    }
+
+    @Test
+    void byBytesDescending_breaks_byte_ties_by_extension_name_ascending() {
+        Map<String, Long> counts = new HashMap<>();
+        counts.put("b", 1L);
+        counts.put("a", 1L);
+        counts.put("c", 1L);
+        Map<String, Long> bytes = new HashMap<>();
+        bytes.put("b", 100L);
+        bytes.put("a", 100L);
+        bytes.put("c", 100L);
+
+        Map<String, Long> sorted = Aggregator.byBytesDescending(counts, bytes);
+
+        // Three-way tie on bytes → secondary alphabetical sort keeps the table deterministic.
+        assertEquals(List.of("a", "b", "c"), new ArrayList<>(sorted.keySet()));
+    }
+
+    @Test
+    void byBytesDescending_treats_missing_bytes_entry_as_zero() {
+        Map<String, Long> counts = new HashMap<>();
+        counts.put("present", 1L);
+        counts.put("ghost", 1L);
+        Map<String, Long> bytes = new HashMap<>();
+        bytes.put("present", 50L);
+        // "ghost" intentionally absent from the bytes map.
+
+        Map<String, Long> sorted = Aggregator.byBytesDescending(counts, bytes);
+
+        assertEquals(List.of("present", "ghost"), new ArrayList<>(sorted.keySet()));
     }
 
     @Test
