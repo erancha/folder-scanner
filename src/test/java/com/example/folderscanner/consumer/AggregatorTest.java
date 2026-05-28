@@ -145,7 +145,7 @@ final class AggregatorTest {
 
     @Test
     void consume_rejects_wrong_FileInfo_subtype_with_IllegalStateException() throws InterruptedException {
-        // Aggregator's factory only ever produces TypeFileInfo. If a PathFileInfo somehow reaches
+        // Aggregator's factory only ever produces ExtensionFileInfo. If a PathFileInfo somehow reaches
         // consume() (mis-wired factory in a future change), the exhaustive switch must surface that
         // as a clear configuration bug — not a bare ClassCastException that bubbles out of a pool
         // thread anonymously and silently corrupts the aggregation.

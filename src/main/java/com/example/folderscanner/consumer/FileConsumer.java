@@ -11,8 +11,8 @@ import java.io.PrintStream;
  */
 public interface FileConsumer {
 
-    /** Number of drainer threads. The composition root enqueues exactly this many POISON pills. */
-    int consumerCount();
+    /** Caller enqueues exactly this many POISON pills, one per drainer. */
+    int drainerCount();
 
     /** Consumer-supplied so the producer stays agnostic of which FileInfo variant it builds. */
     FileInfoFactory factory();

@@ -9,16 +9,16 @@ import java.util.Set;
 
 /**
  * Shared filename-extension semantics: extension extraction plus the parser/matcher for
- * the producer's --file-types include list. Lives in producer/ because the producer is
+ * the producer's --file-extensions include list. Lives in producer/ because the producer is
  * the primary caller (filter before enqueue); Aggregator delegates here so there is one
  * definition of "extension-less" instead of two slightly different ones.
  */
-public final class FileTypes {
+public final class FileExtensions {
 
     /** Internal token used as the map/set key for extension-less files (README, .gitignore, foo.). */
     public static final String NONE = "(none)";
 
-    private FileTypes() {}
+    private FileExtensions() {}
 
     /**
      * Lowercase extension, or "(none)" for dotfiles, extension-less names, and trailing dots.
@@ -33,8 +33,8 @@ public final class FileTypes {
     }
 
     /**
-     * Parses --file-types into an IncludeSet. "*" anywhere short-circuits to all; null /
-     * blank also means all (so Main can pass System.getProperty("filetypes", "*") through
+     * Parses --file-extensions into an IncludeSet. "*" anywhere short-circuits to all; null /
+     * blank also means all (so Main can pass System.getProperty("fileextensions", "*") through
      * without a null guard). Empty tokens are dropped; case + leading dot are normalized.
      */
     public static IncludeSet parse(String raw) {

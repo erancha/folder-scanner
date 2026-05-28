@@ -8,15 +8,15 @@ import java.nio.file.Paths;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for FileTypes — the shared extension-extraction + include-set parser used by
- * both the producer (for type filtering) and the Aggregator (for the by-extension table).
+ * Unit tests for FileExtensions — the shared extension-extraction + include-set parser used by
+ * both the producer (for extension filtering) and the Aggregator (for the by-extension table).
  */
-final class FileTypesTest {
+final class FileExtensionsTest {
 
     @Test
     void extensionOf_lowercase_simple() {
-        assertEquals("txt", FileTypes.extensionOf(Paths.get("notes.txt")));
-        assertEquals("txt", FileTypes.extensionOf(Paths.get("NOTES.TXT")));
+        assertEquals("txt", FileExtensions.extensionOf(Paths.get("notes.txt")));
+        assertEquals("txt", FileExtensions.extensionOf(Paths.get("NOTES.TXT")));
     }
 
     @Test
@@ -24,47 +24,47 @@ final class FileTypesTest {
         // Leading-dot-only names (.gitignore, .bashrc) have lastIndexOf('.') == 0,
         // which means there is no extension — they're config files, not "files of type
         // gitignore". The contract preserves the previous Aggregator behavior.
-        assertEquals("(none)", FileTypes.extensionOf(Paths.get(".gitignore")));
-        assertEquals("(none)", FileTypes.extensionOf(Paths.get(".bashrc")));
+        assertEquals("(none)", FileExtensions.extensionOf(Paths.get(".gitignore")));
+        assertEquals("(none)", FileExtensions.extensionOf(Paths.get(".bashrc")));
     }
 
     @Test
     void extensionOf_no_dot_is_none() {
-        assertEquals("(none)", FileTypes.extensionOf(Paths.get("README")));
-        assertEquals("(none)", FileTypes.extensionOf(Paths.get("Makefile")));
+        assertEquals("(none)", FileExtensions.extensionOf(Paths.get("README")));
+        assertEquals("(none)", FileExtensions.extensionOf(Paths.get("Makefile")));
     }
 
     @Test
     void extensionOf_trailing_dot_is_none() {
         // Trailing dot means an empty extension — substring(dot+1) would be "", which is
         // not a useful key. Bucket it as "(none)" with the other no-extension cases.
-        assertEquals("(none)", FileTypes.extensionOf(Paths.get("foo.")));
+        assertEquals("(none)", FileExtensions.extensionOf(Paths.get("foo.")));
     }
 
     @Test
     void extensionOf_multi_dot_takes_last_segment() {
         // "archive.tar.gz" is one of many .gz files, not one of two .tar files —
         // last-segment matches how `file` and shell globbing read the name.
-        assertEquals("gz", FileTypes.extensionOf(Paths.get("archive.tar.gz")));
+        assertEquals("gz", FileExtensions.extensionOf(Paths.get("archive.tar.gz")));
     }
 
     @Test
     void parse_star_is_all() {
-        assertTrue(FileTypes.parse("*").isAll());
+        assertTrue(FileExtensions.parse("*").isAll());
     }
 
     @Test
     void parse_null_or_blank_defaults_to_all() {
-        // Unset / blank == default == "all". Lets Main pass System.getProperty("filetypes", "*")
+        // Unset / blank == default == "all". Lets Main pass System.getProperty("fileextensions", "*")
         // without an extra null guard.
-        assertTrue(FileTypes.parse(null).isAll());
-        assertTrue(FileTypes.parse("").isAll());
-        assertTrue(FileTypes.parse("   ").isAll());
+        assertTrue(FileExtensions.parse(null).isAll());
+        assertTrue(FileExtensions.parse("").isAll());
+        assertTrue(FileExtensions.parse("   ").isAll());
     }
 
     @Test
     void parse_single_token_matches_only_that_extension() {
-        FileTypes.IncludeSet set = FileTypes.parse("txt");
+        FileExtensions.IncludeSet set = FileExtensions.parse("txt");
         assertFalse(set.isAll());
         assertTrue(set.matches("txt"));
         assertFalse(set.matches("jpg"));
@@ -75,7 +75,7 @@ final class FileTypesTest {
     void parse_normalizes_case_and_leading_dot() {
         // ".TXT", "TXT", and "txt" all describe the same extension. Normalize at parse
         // time so matches() can be a plain set lookup with no per-call lowercasing.
-        FileTypes.IncludeSet set = FileTypes.parse(".TXT, .JPG ,PDF");
+        FileExtensions.IncludeSet set = FileExtensions.parse(".TXT, .JPG ,PDF");
         assertTrue(set.matches("txt"));
         assertTrue(set.matches("jpg"));
         assertTrue(set.matches("pdf"));
@@ -87,14 +87,14 @@ final class FileTypesTest {
         // The user spells "no extension" as `none`; internally extensionOf returns the
         // literal "(none)" (kept stable so Aggregator's by-extension column doesn't change).
         // The parser bridges those two spellings.
-        FileTypes.IncludeSet set = FileTypes.parse("txt,none");
+        FileExtensions.IncludeSet set = FileExtensions.parse("txt,none");
         assertTrue(set.matches("txt"));
         assertTrue(set.matches("(none)"));
     }
 
     @Test
     void parse_drops_empty_tokens_and_whitespace() {
-        FileTypes.IncludeSet set = FileTypes.parse(", ,txt, ");
+        FileExtensions.IncludeSet set = FileExtensions.parse(", ,txt, ");
         assertFalse(set.isAll());
         assertTrue(set.matches("txt"));
     }
@@ -102,15 +102,15 @@ final class FileTypesTest {
     @Test
     void parse_star_anywhere_short_circuits_to_all() {
         // If "*" appears in the list, the rest is redundant — treat the whole list as "all".
-        // Prevents a confusing config like `--file-types=txt,*` from quietly excluding pdf.
-        assertTrue(FileTypes.parse("txt,*,pdf").isAll());
+        // Prevents a confusing config like `--file-extensions=txt,*` from quietly excluding pdf.
+        assertTrue(FileExtensions.parse("txt,*,pdf").isAll());
     }
 
     @Test
     void displayList_returns_sorted_normalized_tokens() {
-        // Used by Main's "Filtered (type not in [...])" report. Sorted so the line is
+        // Used by Main's "Skipped (extension not in [...])" report. Sorted so the line is
         // stable across runs regardless of input order.
-        assertEquals("[jpg, pdf, txt]", FileTypes.parse("PDF,.TXT,jpg").displayList());
-        assertEquals("[(none), txt]", FileTypes.parse("txt,none").displayList());
+        assertEquals("[jpg, pdf, txt]", FileExtensions.parse("PDF,.TXT,jpg").displayList());
+        assertEquals("[(none), txt]", FileExtensions.parse("txt,none").displayList());
     }
 }

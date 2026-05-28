@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
 import com.example.folderscanner.data.PoisonPill;
-import com.example.folderscanner.data.TypeFileInfo;
+import com.example.folderscanner.data.ExtensionFileInfo;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * End-to-end test of producer-side filtering: builds a small fixture under @TempDir, runs
- * FolderScanner with various minSize / includeTypes combinations, and asserts that only the
+ * FolderScanner with various minSize / includeExtensions combinations, and asserts that only the
  * matching files reach the queue and the skip counters are correct.
  */
 final class FolderScannerFilterTest {
@@ -39,17 +39,17 @@ final class FolderScannerFilterTest {
 
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
         FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
-                Set.of(), FileTypes.IncludeSet.ALL, ONE_KB);
+                Set.of(), FileExtensions.IncludeSet.ALL, ONE_KB);
         Set<String> names = drainNames(scanner, root, queue);
 
         assertEquals(Set.of("big.txt"), names);
         assertEquals(1, scanner.filteredBySizeCount());
         assertEquals(10L, scanner.filteredBySizeBytes());
-        assertEquals(0, scanner.filteredByTypeCount());
+        assertEquals(0, scanner.filteredByExtensionCount());
     }
 
     @Test
-    void includeTypes_filters_by_extension(@TempDir Path root) throws Exception {
+    void includeExtensions_filters_by_extension(@TempDir Path root) throws Exception {
         // Only .txt should survive when the include set is { txt }.
         writeBytes(root.resolve("a.txt"), 100);
         writeBytes(root.resolve("b.jpg"), 100);
@@ -57,19 +57,19 @@ final class FolderScannerFilterTest {
 
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
         FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
-                Set.of(), FileTypes.parse("txt"), 0L);
+                Set.of(), FileExtensions.parse("txt"), 0L);
         Set<String> names = drainNames(scanner, root, queue);
 
         assertEquals(Set.of("a.txt"), names);
         assertEquals(0, scanner.filteredBySizeCount());
-        assertEquals(2, scanner.filteredByTypeCount());
-        assertEquals(200L, scanner.filteredByTypeBytes());
+        assertEquals(2, scanner.filteredByExtensionCount());
+        assertEquals(200L, scanner.filteredByExtensionBytes());
     }
 
     @Test
-    void includeTypes_none_token_opts_in_extension_less_files(@TempDir Path root)
+    void includeExtensions_none_token_opts_in_extension_less_files(@TempDir Path root)
             throws Exception {
-        // README has no extension; default behavior excludes it once the type filter is on.
+        // README has no extension; default behavior excludes it once the extension filter is on.
         // The `none` token brings it back.
         writeBytes(root.resolve("README"), 100);
         writeBytes(root.resolve("a.txt"), 100);
@@ -77,11 +77,11 @@ final class FolderScannerFilterTest {
 
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
         FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
-                Set.of(), FileTypes.parse("txt,none"), 0L);
+                Set.of(), FileExtensions.parse("txt,none"), 0L);
         Set<String> names = drainNames(scanner, root, queue);
 
         assertEquals(Set.of("README", "a.txt"), names);
-        assertEquals(1, scanner.filteredByTypeCount());
+        assertEquals(1, scanner.filteredByExtensionCount());
     }
 
     @Test
@@ -93,13 +93,13 @@ final class FolderScannerFilterTest {
 
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
         FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
-                Set.of(), FileTypes.parse("txt"), ONE_KB);
+                Set.of(), FileExtensions.parse("txt"), ONE_KB);
         Set<String> names = drainNames(scanner, root, queue);
 
         assertTrue(names.isEmpty());
         assertEquals(1, scanner.filteredBySizeCount());
-        assertEquals(0, scanner.filteredByTypeCount(),
-                "size-skipped files must not also be counted as type-skipped");
+        assertEquals(0, scanner.filteredByExtensionCount(),
+                "size-skipped files must not also be counted as extension-skipped");
     }
 
     @Test
@@ -111,12 +111,12 @@ final class FolderScannerFilterTest {
 
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
         FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
-                Set.of(), FileTypes.IncludeSet.ALL, 0L);
+                Set.of(), FileExtensions.IncludeSet.ALL, 0L);
         Set<String> names = drainNames(scanner, root, queue);
 
         assertEquals(Set.of("a", "b.txt"), names);
         assertEquals(0, scanner.filteredBySizeCount());
-        assertEquals(0, scanner.filteredByTypeCount());
+        assertEquals(0, scanner.filteredByExtensionCount());
     }
 
     // ---- helpers ----
@@ -128,7 +128,7 @@ final class FolderScannerFilterTest {
 
     /**
      * Runs the scanner, then drains every PathFileInfo from the queue. Adds one extra POISON
-     * pill so the drainer terminates without coupling to consumerCount semantics. The queue
+     * pill so the drainer terminates without coupling to drainerCount semantics. The queue
      * is passed in (not extracted from the scanner) because tests own the queue lifecycle.
      */
     private static Set<String> drainNames(FolderScanner scanner, Path root,
@@ -140,7 +140,7 @@ final class FolderScannerFilterTest {
             FileInfo f = queue.poll(1, TimeUnit.SECONDS);
             if (f instanceof PoisonPill) break;
             if (f instanceof PathFileInfo p) names.add(p.path().getFileName().toString());
-            if (f instanceof TypeFileInfo) throw new AssertionError("unexpected TypeFileInfo");
+            if (f instanceof ExtensionFileInfo) throw new AssertionError("unexpected ExtensionFileInfo");
         }
         scanner.shutdown();
         return names;

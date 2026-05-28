@@ -12,23 +12,23 @@ COMBINATIONS_Q=0
 BUILD=0              # --build runs `mvn package` to produce the executable jar, then exits
 TEST_MODE=""         # --test[=unit|e2e|all] dispatches to JUnit, bash e2e harness, or both
 OUT_FILE=""
-ERRORS_FILE=""       # combinations modes only: collects stderr (skip messages) across all runs
-QUEUE_TYPE_FLAG=""   # passed to combinations mode too so the combinations mode uses the chosen impl
-QUEUE_SIZE_FLAG=""   # passed to combinations mode too so the combinations mode uses the chosen capacity
-CONSUMER_FLAG=""     # -Dconsumer=... ; defaults to aggregate when unset
-HARD_DELETE=0        # 1 when --hard-delete was passed
-MIN_SIZE_RAW=""      # raw value of --min-size=... ; forwarded to Java, parsed there
-EXCLUDE_RAW=""       # raw value of --exclude=... ; comma-separated dir basenames, forwarded to Java
-FILE_TYPES_RAW=""    # raw value of --file-types=... ; forwarded to Java as -Dfiletypes
-OUT_FLAG_RAW=""      # raw value of --out=... ; bash uses it for tee in aggregate mode,
-                     # Java uses it for the script path in duplicates mode
+ERRORS_FILE=""          # combinations modes only: collects stderr (skip messages) across all runs
+QUEUE_TYPE_FLAG=""      # passed to combinations mode too so the combinations mode uses the chosen impl
+QUEUE_SIZE_FLAG=""      # passed to combinations mode too so the combinations mode uses the chosen capacity
+CONSUMER_FLAG=""        # -Dconsumer=... ; defaults to aggregate when unset
+HARD_DELETE=0           # 1 when --hard-delete was passed
+MIN_SIZE_RAW=""         # raw value of --min-size=... ; forwarded to Java, parsed there
+EXCLUDE_RAW=""          # raw value of --exclude=... ; comma-separated dir basenames, forwarded to Java
+FILE_EXTENSIONS_RAW=""  # raw value of --file-extensions=... ; forwarded to Java as -Dfileextensions
+OUT_FLAG_RAW=""         # raw value of --out=... ; bash uses it for tee in aggregate mode,
+                        # Java uses it for the script path in duplicates mode
 JAR="target/folder-scanner-1.0-SNAPSHOT.jar"  # produced by `./scripts/start.sh --build`; consumed by every run path below
 for arg in "$@"; do
     case "$arg" in
-        --stat)
-            FLAGS="$FLAGS -Dstat=true" ;;
-        --no-types)
-            FLAGS="$FLAGS -Dnotypes=true" ;;
+        --stats)
+            FLAGS="$FLAGS -Dstats=true" ;;
+        --skip-extensions-output)
+            FLAGS="$FLAGS -Dskipextensionsoutput=true" ;;
         --producers=*)
             FLAGS="$FLAGS -Dproducers=${arg#--producers=}" ;;
         --consumers=*)
@@ -60,8 +60,8 @@ for arg in "$@"; do
             HARD_DELETE=1 ;;
         --min-size=*)
             MIN_SIZE_RAW="${arg#--min-size=}" ;;
-        --file-types=*)
-            FILE_TYPES_RAW="${arg#--file-types=}" ;;
+        --file-extensions=*)
+            FILE_EXTENSIONS_RAW="${arg#--file-extensions=}" ;;
         --exclude=*)
             EXCLUDE_RAW="${arg#--exclude=}" ;;
         --out=*)
@@ -73,9 +73,9 @@ for arg in "$@"; do
             cat <<EOF
 Usage: ./scripts/start.sh --build
        ./scripts/start.sh --test
-       ./scripts/start.sh [--consumer=aggregate|duplicates] [--stat] [--no-types] [--producers=N] [--consumers=N]
+       ./scripts/start.sh [--consumer=aggregate|duplicates] [--stats] [--skip-extensions-output] [--producers=N] [--consumers=N]
                   [--queue-type=lbq|abq] [--queue-size=N] [--out=PATH] [--hard-delete] [--min-size=SIZE]
-                  [--file-types=LIST] [--exclude=NAME1,NAME2,...] [path]
+                  [--file-extensions=LIST] [--exclude=NAME1,NAME2,...] [path]
        ./scripts/start.sh --combinations   [--queue-type=lbq|abq] [--queue-size=N] [--out=FILE] [--errors=FILE] [path]
        ./scripts/start.sh --combinations-q [--out=FILE] [--errors=FILE] [path]
 
@@ -99,13 +99,13 @@ Usage: ./scripts/start.sh --build
                   so no consumer ever sees them. SIZE is a 1024-based count: raw bytes (e.g. 4096) or one
                   of NB / NKB / NMB / NGB / NTB (case-insensitive, e.g. 1MB, 512KB). Default 0 = no filter.
                   Useful for skipping tiny config / cache / pyc files that are unlikely to matter.
-  --file-types=LIST  Applies to all consumers. Comma-separated extension list to include; everything else
+  --file-extensions=LIST  Applies to all consumers. Comma-separated extension list to include; everything else
                   is skipped before it enters the queue. Tokens are case-insensitive and a leading dot is
-                  optional, so --file-types=txt, --file-types=.TXT, and --file-types=TXT all mean the same
+                  optional, so --file-extensions=txt, --file-extensions=.TXT, and --file-extensions=TXT all mean the same
                   thing. The special token "none" includes files with no extension (README, Makefile,
-                  .gitignore, foo.). Use --file-types=* (the default) to disable the filter. Examples:
-                    --file-types=jpg,jpeg,png,gif,bmp,heic,raw,mp3,wav,m4a,flac,ogg,mp4,mov,mkv,avi,webm
-                    --file-types=md,txt,none
+                  .gitignore, foo.). Use --file-extensions=* (the default) to disable the filter. Examples:
+                    --file-extensions=jpg,jpeg,png,gif,bmp,heic,raw,mp3,wav,m4a,flac,ogg,mp4,mov,mkv,avi,webm
+                    --file-extensions=md,txt,none
   --exclude=LIST  Comma-separated directory basenames the scanner must never recurse into (in addition to
                   the always-skipped .git). Example: --exclude=node_modules,target,.mvn,build,dist,.gradle.
                   For names containing spaces, quote the WHOLE flag so the shell keeps it as one argument
@@ -123,9 +123,9 @@ Usage: ./scripts/start.sh --build
                   resolution; inside a directory the file name is always remove-duplicates.sh (overwrites on
                   each run). Defaults to ./remove-duplicates.sh in the project root when omitted (start.sh
                   cd's there before launching Java). Bash does NOT tee stdout in this mode.
-  --stat          Print thread count, heap usage, and queue depth once per second during the scan (helpful
+  --stats         Print thread count, heap usage, and queue depth once per second during the scan (helpful
                   for watching backpressure in action).
-  --no-types      Aggregate mode only. Skip the by-extension table in the printed result. The aggregation
+  --skip-extensions-output      Aggregate mode only. Skip the by-extension table in the printed result. The aggregation
                   still runs; only the display is suppressed. Useful on huge trees where extension parsing
                   produces thousands of garbage rows that bury the size-bucket summary.
   --producers=N   Number of scanner (folder-walker) threads. Default: max(8, NCPU*4); directory walking is
@@ -142,13 +142,13 @@ Usage: ./scripts/start.sh --build
                   Run the scan 16 times across {lbq,abq} x {4096,8192} x producers{100,64} x consumers{100,48}.
                   Verifies all 16 runs produce an identical result body and prints a sorted comparison table.
                   Overrides any --queue-type / --queue-size / --producers / --consumers on the same command.
-                  Always runs with --no-types (per-run .out files would otherwise carry the huge by-extension
+                  Always runs with --skip-extensions-output (per-run .out files would otherwise carry the huge by-extension
                   table 16 times over). Aggregator only.
   --combinations  Run producer/consumer counts over {4,8,16,24,32,48,64,100} (64 combinations), in randomized
                   order to avoid filesystem-cache bias. Verifies every run produces an identical result (sha256
                   of the result body) and reports the top 5 fastest and bottom 5 slowest combinations,
-                  including the JVM peak thread count for each. Ignores --producers/--consumers/--stat flags.
-                  Always runs with --no-types (the by-extension table would drown out the comparison rows).
+                  including the JVM peak thread count for each. Ignores --producers/--consumers/--stats flags.
+                  Always runs with --skip-extensions-output (the by-extension table would drown out the comparison rows).
                   Aggregator only.
   --out=FILE      Combinations modes: writes the sorted results table (one row per combination, with
                   seconds/threads/memMB/cpu%) plus the verification line to FILE; the per-line progress and
@@ -206,8 +206,8 @@ fi
 if [ -n "$MIN_SIZE_RAW" ]; then
     FLAGS="$FLAGS -Dminsize=$MIN_SIZE_RAW"
 fi
-if [ -n "$FILE_TYPES_RAW" ]; then
-    FLAGS="$FLAGS -Dfiletypes=$FILE_TYPES_RAW"
+if [ -n "$FILE_EXTENSIONS_RAW" ]; then
+    FLAGS="$FLAGS -Dfileextensions=$FILE_EXTENSIONS_RAW"
 fi
 # --exclude must NOT be concatenated into the FLAGS string: bash word-splits on
 # `java $FLAGS ...`, so a folder name like "Microsoft Visual Studio" would shatter
@@ -288,7 +288,7 @@ if [ "$COMBINATIONS_Q" = "1" ]; then
     echo ""
 
     # Warm up the FS cache once so the first real run isn't disproportionately slow.
-    java -Dproducers=8 -Dconsumers=8 -Dnotypes=true -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
+    java -Dproducers=8 -Dconsumers=8 -Dskipextensionsoutput=true -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
 
     RESULTS_FILE=$(mktemp)
     ERRORS_TMP=$(mktemp)   # all runs' stderr appended here; deduped to $ERRORS_FILE at end
@@ -300,7 +300,7 @@ if [ "$COMBINATIONS_Q" = "1" ]; then
             for p in "${P_VALUES[@]}"; do
                 for c in "${C_VALUES[@]}"; do
                     COUNT=$((COUNT + 1))
-                    OUT=$(java $FLAGS "${EXCLUDE_FLAG[@]}" -Dstat=true -Dnotypes=true -Dqueuetype=$qt -Dqueuesize=$qs -Dproducers=$p -Dconsumers=$c -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
+                    OUT=$(java $FLAGS "${EXCLUDE_FLAG[@]}" -Dstats=true -Dskipextensionsoutput=true -Dqueuetype=$qt -Dqueuesize=$qs -Dproducers=$p -Dconsumers=$c -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
                     # Metrics: elapsed seconds (Done in line), peak JVM threads and heap-used MB
                     # (Run stats line), process CPU% (Run stats line).
                     SEC=$(printf "%s" "$OUT" | sed -nE 's/^Done in ([0-9.]+) s.*/\1/p')
@@ -376,7 +376,7 @@ if [ "$COMBINATIONS" = "1" ]; then
     mv "$PAIRS_FILE.shuf" "$PAIRS_FILE"
 
     # Warm up the FS cache once so the first real run isn't disproportionately slow.
-    java -Dproducers=8 -Dconsumers=8 -Dnotypes=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
+    java -Dproducers=8 -Dconsumers=8 -Dskipextensionsoutput=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" >/dev/null 2>&1 || true
 
     REF_HASH=""
     COUNT=0
@@ -384,9 +384,9 @@ if [ "$COMBINATIONS" = "1" ]; then
     ERRORS_TMP=$(mktemp)   # all runs' stderr appended here; deduped to $ERRORS_FILE at end
     while read -r p c; do
         COUNT=$((COUNT + 1))
-        # -Dstat=true so the run prints at least one "[stat ...] threads=N/peak ..." line
+        # -Dstats=true so the run prints at least one "[stat ...] threads=N/peak ..." line
         # (always emitted at end-of-run by Main), which we parse for the JVM peak thread count.
-        OUT=$(java -Dproducers=$p -Dconsumers=$c -Dstat=true -Dnotypes=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
+        OUT=$(java -Dproducers=$p -Dconsumers=$c -Dstats=true -Dskipextensionsoutput=true $QUEUE_TYPE_FLAG $QUEUE_SIZE_FLAG -jar "$JAR" "$TARGET" 2>>"$ERRORS_TMP")
         # Elapsed seconds (1 decimal) from "Done in X.X s." or "Done in X.X s (Y.Y m).".
         SEC=$(printf "%s" "$OUT" | sed -nE 's/^Done in ([0-9.]+) s.*/\1/p')
         # Peak JVM thread count: take the last "threads=N/peak" occurrence from either a

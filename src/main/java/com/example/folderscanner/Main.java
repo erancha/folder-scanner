@@ -5,7 +5,7 @@ import com.example.folderscanner.consumer.DuplicateLocator;
 import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
-import com.example.folderscanner.producer.FileTypes;
+import com.example.folderscanner.producer.FileExtensions;
 import com.example.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
 import java.lang.management.ManagementFactory;
@@ -35,7 +35,7 @@ public final class Main {
      */
     private static final int QUEUE_CAPACITY = Integer.getInteger("queuesize", 4096);
 
-    private static final boolean STAT = Boolean.getBoolean("stat");
+    private static final boolean STATS_ENABLED = Boolean.getBoolean("stats");
     private static final ThreadMXBean THREAD_MX = ManagementFactory.getThreadMXBean();
     private static final OperatingSystemMXBean OS_MX = (OperatingSystemMXBean) ManagementFactory
             .getOperatingSystemMXBean();
@@ -91,7 +91,7 @@ public final class Main {
             return;
         }
 
-        FileTypes.IncludeSet includeTypes = FileTypes.parse(System.getProperty("filetypes", "*"));
+        FileExtensions.IncludeSet includeExtensions = FileExtensions.parse(System.getProperty("fileextensions", "*"));
         FileConsumer consumer = switch (consumerName) {
         case "aggregate" -> new Aggregator(queue, consumers);
         case "duplicates" -> new DuplicateLocator(queue, consumers, outPath, hardDelete, root);
@@ -112,7 +112,7 @@ public final class Main {
             System.exit(2);
         }
         FolderScanner scanner = new FolderScanner(queue, producers, consumer.factory(), excludeDirs,
-                includeTypes, minSizeBytes);
+                includeExtensions, minSizeBytes);
 
         System.out.printf(
                 "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n", root,
@@ -123,11 +123,11 @@ public final class Main {
         long cpu0 = OS_MX.getProcessCpuTime();
         consumer.start();
 
-        // Under --stat, prints a live queue-depth/heap/thread snapshot every second so the
+        // Under --stats, prints a live queue-depth/heap/thread snapshot every second so the
         // user can watch backpressure as the scan runs. Needs its own thread because main
         // is about to block in scanner.scan(). Daemon so it can't keep the JVM alive on its own.
         ScheduledExecutorService statsTimer = null;
-        if (STAT) {
+        if (STATS_ENABLED) {
             statsTimer = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "stat-reporter");
                 t.setDaemon(true);
@@ -139,7 +139,7 @@ public final class Main {
         try {
             scanner.scan(root);
             // One POISON per consumer; the queue is FIFO so pills come after every real file.
-            for (int i = 0; i < consumer.consumerCount(); i++) {
+            for (int i = 0; i < consumer.drainerCount(); i++) {
                 queue.put(FileInfo.POISON);
             }
         } finally {
@@ -155,10 +155,10 @@ public final class Main {
                     Format.humanBytes(minSizeBytes), scanner.filteredBySizeCount(),
                     Format.humanBytes(scanner.filteredBySizeBytes()));
         }
-        if (!includeTypes.isAll()) {
-            System.out.printf("%nSkipped (type not in %s): %,d files (%s).%n",
-                    includeTypes.displayList(), scanner.filteredByTypeCount(),
-                    Format.humanBytes(scanner.filteredByTypeBytes()));
+        if (!includeExtensions.isAll()) {
+            System.out.printf("%nSkipped (extension not in %s): %,d files (%s).%n",
+                    includeExtensions.displayList(), scanner.filteredByExtensionCount(),
+                    Format.humanBytes(scanner.filteredByExtensionBytes()));
         }
 
         long elapsedNs = System.nanoTime() - t0;
@@ -167,7 +167,7 @@ public final class Main {
                 Format.formatElapsed(elapsedMs), consumer.totalFilesSeen(),
                 Format.humanBytes(consumer.totalBytesSeen()));
         printRunSummary(elapsedNs, cpu0);
-        if (STAT)
+        if (STATS_ENABLED)
             printStats(queue, t0);
     }
 

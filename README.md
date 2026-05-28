@@ -22,7 +22,7 @@ Requires Java 21 and Maven on PATH.
 
 ### Exclude list
 
-`--exclude=LIST`, `--min-size=SIZE`, and `--file-types=LIST` are producer-side filters — filtered-out entries
+`--exclude=LIST`, `--min-size=SIZE`, and `--file-extensions=LIST` are producer-side filters — filtered-out entries
 never enter the bounded queue. `--exclude` is the cheapest because it short-circuits whole subtrees before any
 directory listing; the other two cost one attribute check per file.
 
@@ -58,7 +58,7 @@ com.example.folderscanner
 │   ├── Aggregator        by-extension / size / date totals
 │   └── DuplicateLocator  finds identical-content files, writes a removal script
 └── data/
-    └── FileInfo          sealed message; POISON sentinel; TypeFileInfo / PathFileInfo variants
+    └── FileInfo          sealed message; POISON sentinel; ExtensionFileInfo / PathFileInfo variants
 ```
 
 The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer

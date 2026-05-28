@@ -3,7 +3,7 @@ package com.example.folderscanner.consumer;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
 import com.example.folderscanner.data.PoisonPill;
-import com.example.folderscanner.data.TypeFileInfo;
+import com.example.folderscanner.data.ExtensionFileInfo;
 import com.example.folderscanner.producer.FileInfoFactory;
 
 import java.io.IOException;
@@ -39,7 +39,7 @@ import java.util.stream.Collectors;
 public final class DuplicateLocator implements FileConsumer {
 
     private final BlockingQueue<FileInfo> queue;
-    private final ThreadPoolExecutor drainersPool;
+    private final ThreadPoolExecutor drainerPool;
     private final String outPathRaw;
     private final boolean hardDelete;
     private final Path sourceTree;
@@ -62,12 +62,12 @@ public final class DuplicateLocator implements FileConsumer {
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
-        this.drainersPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
+        this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
     }
 
     @Override
-    public int consumerCount() {
-        return drainersPool.getCorePoolSize();
+    public int drainerCount() {
+        return drainerPool.getCorePoolSize();
     }
 
     @Override
@@ -79,8 +79,8 @@ public final class DuplicateLocator implements FileConsumer {
     @Override
     public void start() {
         phase1StartNs = System.nanoTime();
-        for (int i = 0, n = drainersPool.getCorePoolSize(); i < n; i++) {
-            drainersPool.submit(this::consume);
+        for (int i = 0, n = drainerPool.getCorePoolSize(); i < n; i++) {
+            drainerPool.submit(this::consume);
         }
     }
 
@@ -107,8 +107,8 @@ public final class DuplicateLocator implements FileConsumer {
                 case PoisonPill ignored -> {
                     return;
                 }
-                case TypeFileInfo ignored -> throw new IllegalStateException(
-                        "DuplicateLocator received TypeFileInfo; its factory() produces only "
+                case ExtensionFileInfo ignored -> throw new IllegalStateException(
+                        "DuplicateLocator received ExtensionFileInfo; its factory() produces only "
                                 + "PathFileInfo");
                 }
             }
@@ -119,14 +119,12 @@ public final class DuplicateLocator implements FileConsumer {
 
     @Override
     public void awaitAndReport(PrintStream out) throws InterruptedException {
-        drainersPool.shutdown();
-        if (!drainersPool.awaitTermination(1, TimeUnit.HOURS)) {
+        drainerPool.shutdown();
+        if (!drainerPool.awaitTermination(1, TimeUnit.HOURS)) {
             throw new IllegalStateException("duplicate locator did not terminate within 1 hour");
         }
-        // All drainers have exited; record phase-1 elapsed.
         phase1ElapsedMs = (System.nanoTime() - phase1StartNs) / 1_000_000L;
 
-        // Phase 2: confirm size-collisions.
         DuplicateReport report = runPhase2();
 
         if (report.groupCount() == 0) {
@@ -152,7 +150,7 @@ public final class DuplicateLocator implements FileConsumer {
         long t0 = System.nanoTime();
         List<DuplicateReport.Group> confirmed = new ArrayList<>();
 
-        // Phase 2 is IO-bound (hashing files); size the pool from CPU count. (TODO: optimize?)
+        // Hashing is mixed disk-read + CPU work — 2×NCPU lets some workers wait on disk while others hash.
         int phase2Parallelism = Runtime.getRuntime().availableProcessors() * 2;
         try (ForkJoinPool phase2Pool = new ForkJoinPool(phase2Parallelism)) {
             List<DuplicateReport.Group> groups = phase2Pool.submit(() -> pathsBySize.entrySet()
@@ -219,7 +217,7 @@ public final class DuplicateLocator implements FileConsumer {
         return totalBytes.sum();
     }
 
-    /** Phase-1 wall-clock in ms; valid after awaitAndReport returns. Package-private for tests. */
+    /** Phase-1 wall-clock in ms; valid after awaitAndReport returns. Package-private for the testing framework. */
     long phase1ElapsedMs() {
         return phase1ElapsedMs;
     }

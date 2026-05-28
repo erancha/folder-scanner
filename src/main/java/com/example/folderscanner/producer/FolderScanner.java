@@ -30,27 +30,27 @@ public final class FolderScanner {
     /** Frozen at construction (Set.copyOf) so the per-directory contains() takes no lock. */
     private final Set<String> skipDirNames;
     private final BlockingQueue<FileInfo> queue;
-    private final ForkJoinPool pool; // AKA FJP
+    private final ForkJoinPool scanWorkers;
     private final FileInfoFactory factory;
     private final long minSizeBytes;
-    private final FileTypes.IncludeSet includeTypes;
+    private final FileExtensions.IncludeSet includeExtensions;
     private final LongAdder filteredBySizeCount = new LongAdder();
     private final LongAdder filteredBySizeBytes = new LongAdder();
-    private final LongAdder filteredByTypeCount = new LongAdder();
-    private final LongAdder filteredByTypeBytes = new LongAdder();
+    private final LongAdder filteredByExtensionCount = new LongAdder();
+    private final LongAdder filteredByExtensionBytes = new LongAdder();
 
     public FolderScanner(BlockingQueue<FileInfo> queue, int parallelism, FileInfoFactory factory,
-            Set<String> skipDirNames, FileTypes.IncludeSet includeTypes, long minSizeBytes) {
+            Set<String> skipDirNames, FileExtensions.IncludeSet includeExtensions, long minSizeBytes) {
         if (parallelism < 1)
             throw new IllegalArgumentException("parallelism must be >= 1");
         if (minSizeBytes < 0)
             throw new IllegalArgumentException("minSizeBytes must be >= 0");
         this.queue = queue;
         this.factory = factory;
-        this.pool = new ForkJoinPool(parallelism);
+        this.scanWorkers = new ForkJoinPool(parallelism);
         this.skipDirNames = Set.copyOf(skipDirNames);
         this.minSizeBytes = minSizeBytes;
-        this.includeTypes = includeTypes;
+        this.includeExtensions = includeExtensions;
     }
 
     /** Blocks until every file has been enqueued and every subtree task has completed. */
@@ -58,7 +58,7 @@ public final class FolderScanner {
         if (!Files.isDirectory(root))
             throw new IOException("not a directory: " + root);
         try {
-            pool.invoke(new ScanTask(root));
+            scanWorkers.invoke(new ScanTask(root));
         } catch (RuntimeException e) {
             if (e.getCause() instanceof InterruptedException ie) {
                 Thread.currentThread().interrupt();
@@ -69,13 +69,13 @@ public final class FolderScanner {
     }
 
     public void shutdown() {
-        pool.shutdown();
+        scanWorkers.shutdown();
     }
 
     public long filteredBySizeCount() { return filteredBySizeCount.sum(); }
     public long filteredBySizeBytes() { return filteredBySizeBytes.sum(); }
-    public long filteredByTypeCount() { return filteredByTypeCount.sum(); }
-    public long filteredByTypeBytes() { return filteredByTypeBytes.sum(); }
+    public long filteredByExtensionCount() { return filteredByExtensionCount.sum(); }
+    public long filteredByExtensionBytes() { return filteredByExtensionBytes.sum(); }
 
     /** One task per directory: enumerate children, fork subdirs, enqueue regular files, join. */
     private final class ScanTask extends RecursiveAction {
@@ -108,9 +108,9 @@ public final class FolderScanner {
                         }
                         Path subfolder = child;
                         // Each subfolder becomes a ScanTask: `subfolder` → `subtask`. fork() pushes
-                        // `subtask` onto the current FJP worker's local deque (LIFO); idle workers
-                        // in `pool` steal from the tail, so the subfolder runs on whichever worker
-                        // grabs the task first — no upfront worker↔subfolder binding.
+                        // `subtask` onto the current worker's local deque (LIFO); idle workers in
+                        // `scanWorkers` steal from the tail, so the subfolder runs on whichever
+                        // worker grabs the task first — no upfront worker↔subfolder binding.
                         ScanTask subtask = new ScanTask(subfolder);
                         subtask.fork();
                         forkedSubtasks.add(subtask);
@@ -121,11 +121,11 @@ public final class FolderScanner {
                             filteredBySizeBytes.add(attrs.size());
                             continue;
                         }
-                        if (!includeTypes.isAll()) {
-                            String ext = FileTypes.extensionOf(child);
-                            if (!includeTypes.matches(ext)) {
-                                filteredByTypeCount.increment();
-                                filteredByTypeBytes.add(attrs.size());
+                        if (!includeExtensions.isAll()) {
+                            String ext = FileExtensions.extensionOf(child);
+                            if (!includeExtensions.matches(ext)) {
+                                filteredByExtensionCount.increment();
+                                filteredByExtensionBytes.add(attrs.size());
                                 continue;
                             }
                         }
@@ -137,7 +137,7 @@ public final class FolderScanner {
                 System.err.println("skip (dir unreadable): " + dir + " — " + e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException(e); // unwrapped by FolderScanner.scan()
+                throw new RuntimeException(e); // FJP compute() can't throw checked exceptions
             }
             for (ScanTask subtask : forkedSubtasks)
                 subtask.join();

@@ -5,7 +5,7 @@ package com.example.folderscanner.data;
  * dispatch switch is exhaustive: adding a new permitted variant breaks every consumer
  * at compile time instead of being silently dropped at runtime.
  */
-public sealed interface FileInfo permits TypeFileInfo, PathFileInfo, PoisonPill {
+public sealed interface FileInfo permits ExtensionFileInfo, PathFileInfo, PoisonPill {
 
     long size();
 

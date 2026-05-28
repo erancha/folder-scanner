@@ -4,3 +4,4 @@ docs/*-eval-*.md
 trash/
 remove-duplicates.sh
 scripts/tmp.sh
+.claude/settings.local.json

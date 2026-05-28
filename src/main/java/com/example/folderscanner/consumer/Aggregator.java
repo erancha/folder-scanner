@@ -4,9 +4,9 @@ import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
 import com.example.folderscanner.data.PathFileInfo;
 import com.example.folderscanner.data.PoisonPill;
-import com.example.folderscanner.data.TypeFileInfo;
+import com.example.folderscanner.data.ExtensionFileInfo;
 import com.example.folderscanner.producer.FileInfoFactory;
-import com.example.folderscanner.producer.FileTypes;
+import com.example.folderscanner.producer.FileExtensions;
 import java.io.PrintStream;
 import java.time.DayOfWeek;
 import java.time.Instant;
@@ -35,13 +35,13 @@ import java.util.concurrent.atomic.LongAdder;
 public final class Aggregator implements FileConsumer {
 
     private final BlockingQueue<FileInfo> queue;
-    private final ThreadPoolExecutor drainersPool;
+    private final ThreadPoolExecutor drainerPool;
 
     // Keys are file extensions (e.g. "jpg"). CHM uses lock striping so drainer threads can install
     // a LongAdder for a never-seen extension without one global lock; LongAdder then shards
     // increments per CPU cell so updates to the same counter don't CAS-contend on a cache line.
-    private final ConcurrentHashMap<String, LongAdder> countByType = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, LongAdder> bytesByType = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LongAdder> countByExtension = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LongAdder> bytesByExtension = new ConcurrentHashMap<>();
 
     // Size-bucket keys are fixed at compile time, so a plain array indexed by ordinal() is
     // simpler and faster than another CHM lookup per file.
@@ -59,9 +59,7 @@ public final class Aggregator implements FileConsumer {
     private final LongAdder bytesMonth = new LongAdder();
     private final LongAdder bytesYear = new LongAdder();
 
-    // Keys are calendar years. CHM uses lock striping so drainers can install a LongAdder for a
-    // year not yet seen without one global lock; LongAdder then shards increments per CPU cell so
-    // updates to the same year's counter don't CAS-contend on a cache line.
+    // Keys are calendar years; same CHM + LongAdder rationale as countByExtension/bytesByExtension.
     private final ConcurrentHashMap<Integer, LongAdder> countByPriorYear = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, LongAdder> bytesByPriorYear = new ConcurrentHashMap<>();
 
@@ -76,14 +74,15 @@ public final class Aggregator implements FileConsumer {
     private final long todayEndMillis;
     private final ZoneId zone = ZoneId.systemDefault();
 
-    private static final boolean NO_TYPES = Boolean.getBoolean("notypes");
+    private static final boolean SKIP_EXTENSIONS_OUTPUT = Boolean
+            .getBoolean("skipextensionsoutput");
     private static final int TABLE_INDENT = 4;
 
     public Aggregator(BlockingQueue<FileInfo> queue, int consumerThreads) {
         if (consumerThreads < 1)
             throw new IllegalArgumentException("consumerThreads must be >= 1");
         this.queue = queue;
-        this.drainersPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
+        this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
         for (int i = 0; i < countBySize.length; i++) {
             countBySize[i] = new LongAdder();
             bytesBySize[i] = new LongAdder();
@@ -103,28 +102,28 @@ public final class Aggregator implements FileConsumer {
     }
 
     @Override
-    public int consumerCount() {
-        return drainersPool.getCorePoolSize();
+    public int drainerCount() {
+        return drainerPool.getCorePoolSize();
     }
 
     @Override
     public FileInfoFactory factory() {
-        return (path, attrs) -> new TypeFileInfo(extensionOf(path), attrs.size(),
+        return (path, attrs) -> new ExtensionFileInfo(extensionOf(path), attrs.size(),
                 attrs.lastModifiedTime().toMillis());
     }
 
     /**
-     * Delegates to {@link FileTypes#extensionOf} so producer and consumer agree on what "(none)"
-     * means.
+     * Delegates to {@link FileExtensions#extensionOf} so producer and consumer agree on what
+     * "(none)" means.
      */
     static String extensionOf(java.nio.file.Path file) {
-        return FileTypes.extensionOf(file);
+        return FileExtensions.extensionOf(file);
     }
 
     @Override
     public void start() {
-        for (int i = 0, n = drainersPool.getCorePoolSize(); i < n; i++) {
-            drainersPool.submit(this::consume);
+        for (int i = 0, n = drainerPool.getCorePoolSize(); i < n; i++) {
+            drainerPool.submit(this::consume);
         }
     }
 
@@ -138,11 +137,13 @@ public final class Aggregator implements FileConsumer {
             while (true) {
                 FileInfo f = queue.take();
                 switch (f) {
-                case TypeFileInfo t -> {
+                case ExtensionFileInfo t -> {
                     totalFiles.increment();
                     totalBytes.add(t.size());
-                    countByType.computeIfAbsent(t.extension(), k -> new LongAdder()).increment();
-                    bytesByType.computeIfAbsent(t.extension(), k -> new LongAdder()).add(t.size());
+                    countByExtension.computeIfAbsent(t.extension(), k -> new LongAdder())
+                            .increment();
+                    bytesByExtension.computeIfAbsent(t.extension(), k -> new LongAdder())
+                            .add(t.size());
                     SizeBucket b = SizeBucket.of(t.size());
                     countBySize[b.ordinal()].increment();
                     bytesBySize[b.ordinal()].add(t.size());
@@ -153,7 +154,7 @@ public final class Aggregator implements FileConsumer {
                 }
                 case PathFileInfo ignored -> throw new IllegalStateException(
                         "Aggregator received PathFileInfo; its factory() produces only "
-                                + "TypeFileInfo");
+                                + "ExtensionFileInfo");
                 }
             }
         } catch (InterruptedException e) {
@@ -194,8 +195,8 @@ public final class Aggregator implements FileConsumer {
     @Override
     public void awaitAndReport(PrintStream out) throws InterruptedException {
         // shutdown() (not shutdownNow) so queued items still drain — drainers exit on POISON.
-        drainersPool.shutdown();
-        if (!drainersPool.awaitTermination(1, java.util.concurrent.TimeUnit.HOURS)) {
+        drainerPool.shutdown();
+        if (!drainerPool.awaitTermination(1, java.util.concurrent.TimeUnit.HOURS)) {
             throw new IllegalStateException("aggregator did not terminate within 1 hour");
         }
         printResult(out, snapshot());
@@ -212,10 +213,10 @@ public final class Aggregator implements FileConsumer {
     }
 
     AggregationResult snapshot() {
-        Map<String, Long> countByExt = new TreeMap<>();
-        Map<String, Long> bytesByExt = new TreeMap<>();
-        countByType.forEach((k, v) -> countByExt.put(k, v.sum()));
-        bytesByType.forEach((k, v) -> bytesByExt.put(k, v.sum()));
+        Map<String, Long> extensionCounts = new TreeMap<>();
+        Map<String, Long> extensionBytes = new TreeMap<>();
+        countByExtension.forEach((k, v) -> extensionCounts.put(k, v.sum()));
+        bytesByExtension.forEach((k, v) -> extensionBytes.put(k, v.sum()));
         Map<SizeBucket, Long> countBySizeMap = new EnumMap<>(SizeBucket.class);
         Map<SizeBucket, Long> bytesBySizeMap = new EnumMap<>(SizeBucket.class);
         for (SizeBucket b : SizeBucket.values()) {
@@ -241,12 +242,12 @@ public final class Aggregator implements FileConsumer {
             LongAdder bAdder = bytesByPriorYear.get(year);
             bytesByDate.put(key, bAdder == null ? 0L : bAdder.sum());
         }
-        return new AggregationResult(countByExt, bytesByExt, countBySizeMap, bytesBySizeMap,
-                countByDate, bytesByDate, totalFiles.sum(), totalBytes.sum());
+        return new AggregationResult(extensionCounts, extensionBytes, countBySizeMap,
+                bytesBySizeMap, countByDate, bytesByDate, totalFiles.sum(), totalBytes.sum());
     }
 
     private static void printResult(PrintStream out, AggregationResult r) {
-        if (!NO_TYPES) {
+        if (!SKIP_EXTENSIONS_OUTPUT) {
             out.println("\nBy extension:");
             out.print(buildTable("extension", 16, r.countByExtension(), r.bytesByExtension(),
                     java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())

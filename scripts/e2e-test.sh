@@ -173,26 +173,26 @@ OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB "$FIXTU
 assert_contains "min_size_files_count" "$OUT" "Files=2"
 assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.00 KB): 3 files"
 
-# ---- test 10: --file-types filters non-matching extensions at the producer -
+# ---- test 10: --file-extensions filters non-matching extensions at the producer -
 # Only .txt allowed. Drops the four .bin files (dup_a, dup_b, unique, big);
 # tiny.txt (13 B) survives. Files=1 plus a Filtered (type...) line counting 4.
-OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --file-types=txt "$FIXTURE" 2>&1)" || true
-assert_contains "file_types_files_count" "$OUT" "Files=1"
-assert_contains "file_types_report_line" "$OUT" "Skipped (type not in [txt]): 4 files"
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --file-extensions=txt "$FIXTURE" 2>&1)" || true
+assert_contains "file_extensions_files_count" "$OUT" "Files=1"
+assert_contains "file_extensions_report_line" "$OUT" "Skipped (extension not in [txt]): 4 files"
 # The by-extension table should contain a txt row but no bin row.
 TXT_ROW="$(printf "%s" "$OUT" | grep -E '^\s*txt\b' || true)"
-assert_contains "file_types_txt_row_present" "$TXT_ROW" "txt"
+assert_contains "file_extensions_txt_row_present" "$TXT_ROW" "txt"
 BIN_ROW="$(printf "%s" "$OUT" | grep -E '^\s*bin\b' || true)"
-assert_eq "file_types_no_bin_row" "" "$BIN_ROW"
+assert_eq "file_extensions_no_bin_row" "" "$BIN_ROW"
 
-# ---- test 11: --min-size + --file-types together at the producer -----------
+# ---- test 11: --min-size + --file-extensions together at the producer -----------
 # Size is checked first, so tiny.txt (13 B, .txt) is credited to the size
-# bucket only — it is not also counted as a type-filtered file. Survivors:
+# bucket only — it is not also counted as an extension-filtered file. Survivors:
 # unique.bin (2048 B) + big.bin (~1.05 MB), both passing both filters.
-OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB --file-types=bin "$FIXTURE" 2>&1)" || true
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB --file-extensions=bin "$FIXTURE" 2>&1)" || true
 assert_contains "producer_filter_files_count" "$OUT" "Files=2"
 assert_contains "producer_filter_size_report" "$OUT" "Skipped (size < 1.00 KB):"
-assert_contains "producer_filter_type_report" "$OUT" "Skipped (type not in [bin]):"
+assert_contains "producer_filter_type_report" "$OUT" "Skipped (extension not in [bin]):"
 BIN_ROW="$(printf "%s" "$OUT" | grep -E '^\s*bin\b' || true)"
 assert_contains "producer_filter_bin_row_present" "$BIN_ROW" "bin"
 TXT_ROW="$(printf "%s" "$OUT" | grep -E '^\s*txt\b' || true)"
