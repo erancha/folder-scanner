@@ -35,6 +35,8 @@ public final class Main {
     private static final OperatingSystemMXBean OS_MX = (OperatingSystemMXBean) ManagementFactory
             .getOperatingSystemMXBean();
 
+    private Main() {}
+
     public static void main(String[] args) throws Exception {
         Path root = Paths.get(args.length > 0 ? args[0] : ".").toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {

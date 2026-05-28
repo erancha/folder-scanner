@@ -159,7 +159,10 @@ public final class DuplicateLocator implements FileConsumer {
         long t0 = System.nanoTime();
         List<DuplicateReport.Group> confirmed = new ArrayList<>();
 
-        // Hashing is mixed disk-read + CPU work — 2×NCPU lets some workers wait on disk while others hash.
+        // Hashing is mixed disk-read + CPU work — 2×NCPU lets some workers wait on disk while
+        // others hash. A fresh ForkJoinPool (rather than ForkJoinPool.commonPool()) is required
+        // for that 2×NCPU sizing: commonPool is fixed at NCPU and shared process-wide, so reusing
+        // it would both cap our parallelism and leak phase-2 work onto unrelated callers.
         int phase2Parallelism = Runtime.getRuntime().availableProcessors() * 2;
         try (ForkJoinPool phase2Pool = new ForkJoinPool(phase2Parallelism)) {
             List<DuplicateReport.Group> groups = phase2Pool.submit(() -> pathsBySize.entrySet()

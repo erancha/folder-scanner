@@ -89,16 +89,18 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- `mvn compile exec:java` runs Main. Override the scan target with -Dexec.args="path". -->
+            <!-- `mvn compile exec:java` runs Main. Pass the scan target via -Dexec.args="path".
+                 No baked-in default argument: the previous `../..` reflected one developer's
+                 layout (grandparent of the checkout) rather than anything portable. When the
+                 caller omits -Dexec.args, Main falls back to its own "." default (the cwd =
+                 the project root under Maven), which is at least predictable from the
+                 invocation site. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.5.0</version>
                 <configuration>
                     <mainClass>com.example.folderscanner.Main</mainClass>
-                    <arguments>
-                        <argument>../..</argument>
-                    </arguments>
                 </configuration>
             </plugin>
         </plugins>

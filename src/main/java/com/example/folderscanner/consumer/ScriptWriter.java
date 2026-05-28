@@ -122,6 +122,12 @@ public final class ScriptWriter {
      * Escapes the four characters that retain special meaning inside double-quoted shell
      * arguments (\, ", $, `). Order matters: backslash must be replaced first, otherwise the
      * substitutions added by the later steps would themselves get re-escaped.
+     *
+     * Limitation: literal newlines and other control characters are passed through unchanged.
+     * On Unix, a filename can legitimately contain {@code \n}, and the resulting {@code mv}
+     * or {@code rm} line would be split across two shell commands. Out of scope for the
+     * target environments (the duplicate finder is run against user data trees, not adversarial
+     * fuzzing inputs); call out here so a future caller does not assume otherwise.
      */
     static String shellQuote(Path p) {
         return shellQuoteString(p.toString());
