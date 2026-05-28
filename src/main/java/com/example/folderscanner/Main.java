@@ -21,6 +21,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Composition root. Wires the producer (FolderScanner), the consumer (Aggregator or
@@ -28,6 +30,8 @@ import java.util.concurrent.TimeUnit;
  * so it can be overridden from tests or from --combinations runs.
  */
 public final class Main {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Main.class);
 
     /**
      * Bounded queue capacity. Small on purpose: put() starts blocking quickly when consumers stall,
@@ -43,7 +47,7 @@ public final class Main {
     public static void main(String[] args) throws Exception {
         Path root = Paths.get(args.length > 0 ? args[0] : ".").toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {
-            System.err.println("Not a directory: " + root);
+            LOGGER.error("Not a directory: {}", root);
             System.exit(2);
         }
 
@@ -54,7 +58,7 @@ public final class Main {
         int producers = Integer.getInteger("producers", Math.max(8, ncpu * 4));
         int consumers = Integer.getInteger("consumers", Math.max(4, ncpu * 2));
         if (producers < 1 || consumers < 1) {
-            System.err.println("producers and consumers must be >= 1");
+            LOGGER.error("producers and consumers must be >= 1");
             System.exit(2);
         }
 
@@ -72,7 +76,7 @@ public final class Main {
         case "lbq" -> queue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
         case "abq" -> queue = new ArrayBlockingQueue<>(QUEUE_CAPACITY);
         default -> {
-            System.err.println("Unknown queue type: " + queueType + " (expected lbq or abq)");
+            LOGGER.error("Unknown queue type: {} (expected lbq or abq)", queueType);
             System.exit(2);
             return;
         }
@@ -86,7 +90,7 @@ public final class Main {
         try {
             minSizeBytes = Format.parseSize(System.getProperty("minsize", "0"));
         } catch (IllegalArgumentException e) {
-            System.err.println("Invalid --min-size: " + e.getMessage());
+            LOGGER.error("Invalid --min-size: {}", e.getMessage());
             System.exit(2);
             return;
         }
@@ -96,8 +100,7 @@ public final class Main {
         case "aggregate" -> new Aggregator(queue, consumers);
         case "duplicates" -> new DuplicateLocator(queue, consumers, outPath, hardDelete, root);
         default -> {
-            System.err.println(
-                    "Unknown --consumer: " + consumerName + " (expected aggregate or duplicates)");
+            LOGGER.error("Unknown --consumer: {} (expected aggregate or duplicates)", consumerName);
             System.exit(2);
             yield null;
         }
@@ -105,10 +108,9 @@ public final class Main {
 
         Set<String> excludeDirs = parseExcludeDirs(System.getProperty("exclude", ".git"));
         if (excludeDirs.isEmpty()) {
-            System.err.println(
-                    "--exclude is required: pass a comma-separated list of directory basenames "
-                            + "to skip (e.g. --exclude=.git,node_modules,target). "
-                            + "See README for recommended lists.");
+            LOGGER.error("--exclude is required: pass a comma-separated list of directory basenames "
+                    + "to skip (e.g. --exclude=.git,node_modules,target). "
+                    + "See README for recommended lists.");
             System.exit(2);
         }
         FolderScanner scanner = new FolderScanner(queue, producers, consumer.factory(), excludeDirs,

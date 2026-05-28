@@ -14,6 +14,8 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.LongAdder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Walks a directory tree in parallel and enqueues one FileInfo per regular file.
@@ -26,6 +28,13 @@ import java.util.concurrent.atomic.LongAdder;
  * is Main's call.
  */
 public final class FolderScanner {
+
+    /**
+     * Channel for recoverable per-entry IO failures (unreadable directories or attributes).
+     * These are expected during a deep walk — locked system folders, denied ACLs, transient
+     * races — so they are emitted at DEBUG and stay below the default Logback threshold.
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(FolderScanner.class);
 
     /** Frozen at construction (Set.copyOf) so the per-directory contains() takes no lock. */
     private final Set<String> skipDirNames;
@@ -98,8 +107,7 @@ public final class FolderScanner {
                         attrs = Files.readAttributes(child, BasicFileAttributes.class,
                                 LinkOption.NOFOLLOW_LINKS);
                     } catch (IOException e) {
-                        System.err.println(
-                                "skip (attrs unreadable): " + child + " — " + e.getMessage());
+                        LOGGER.debug("skip (attrs unreadable): {} — {}", child, e.getMessage());
                         continue;
                     }
                     if (attrs.isDirectory()) {
@@ -134,7 +142,7 @@ public final class FolderScanner {
                     }
                 }
             } catch (IOException e) {
-                System.err.println("skip (dir unreadable): " + dir + " — " + e.getMessage());
+                LOGGER.debug("skip (dir unreadable): {} — {}", dir, e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException(e); // FJP compute() can't throw checked exceptions

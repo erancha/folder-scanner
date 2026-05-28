@@ -74,8 +74,6 @@ public final class Aggregator implements FileConsumer {
     private final long todayEndMillis;
     private final ZoneId zone = ZoneId.systemDefault();
 
-    private static final boolean SKIP_EXTENSIONS_OUTPUT = Boolean
-            .getBoolean("skipextensionsoutput");
     private static final int TABLE_INDENT = 4;
 
     public Aggregator(BlockingQueue<FileInfo> queue, int consumerThreads) {
@@ -247,12 +245,10 @@ public final class Aggregator implements FileConsumer {
     }
 
     private static void printResult(PrintStream out, AggregationResult r) {
-        if (!SKIP_EXTENSIONS_OUTPUT) {
-            out.println("\nBy extension:");
-            out.print(buildTable("extension", 16, r.countByExtension(), r.bytesByExtension(),
-                    java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())
-                            .indent(TABLE_INDENT));
-        }
+        out.println("\nBy extension:");
+        out.print(buildTable("extension", 16, r.countByExtension(), r.bytesByExtension(),
+                java.util.function.Function.identity(), r.totalFiles(), r.totalBytes())
+                        .indent(TABLE_INDENT));
 
         out.println("\nBy size bucket:");
         out.print(buildTable("bucket", 20, r.countBySizeBucket(), r.bytesBySizeBucket(),

@@ -24,6 +24,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Locates files with identical content and emits a shell script that quarantines or deletes the
@@ -37,6 +39,13 @@ import java.util.stream.Collectors;
  * inspect.
  */
 public final class DuplicateLocator implements FileConsumer {
+
+    /**
+     * Channel for recoverable hash failures during phase 2. A file can disappear or have its
+     * permissions tightened between size-bucketing and hashing; that is expected on a live
+     * filesystem and emitted at DEBUG so it stays below the default Logback threshold.
+     */
+    private static final Logger LOGGER = LoggerFactory.getLogger(DuplicateLocator.class);
 
     private final BlockingQueue<FileInfo> queue;
     private final ThreadPoolExecutor drainerPool;
@@ -180,7 +189,7 @@ public final class DuplicateLocator implements FileConsumer {
             try {
                 bySmall.computeIfAbsent(ContentHasher.smallHash(p), k -> new ArrayList<>()).add(p);
             } catch (IOException e) {
-                System.err.println("skip (small-hash failed): " + p + " — " + e.getMessage());
+                LOGGER.debug("skip (small-hash failed): {} — {}", p, e.getMessage());
             }
         }
         List<DuplicateReport.Group> out = new ArrayList<>();
@@ -193,7 +202,7 @@ public final class DuplicateLocator implements FileConsumer {
                     byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>())
                             .add(p);
                 } catch (IOException e) {
-                    System.err.println("skip (full-hash failed): " + p + " — " + e.getMessage());
+                    LOGGER.debug("skip (full-hash failed): {} — {}", p, e.getMessage());
                 }
             }
             for (List<Path> group : byFull.values()) {

@@ -27,8 +27,8 @@ for arg in "$@"; do
     case "$arg" in
         --stats)
             FLAGS="$FLAGS -Dstats=true" ;;
-        --skip-extensions-output)
-            FLAGS="$FLAGS -Dskipextensionsoutput=true" ;;
+        --log-level=*)
+            FLAGS="$FLAGS -Dlog.level=${arg#--log-level=}" ;;
         --producers=*)
             FLAGS="$FLAGS -Dproducers=${arg#--producers=}" ;;
         --consumers=*)
@@ -73,7 +73,7 @@ for arg in "$@"; do
             cat <<EOF
 Usage: ./scripts/start.sh --build
        ./scripts/start.sh --test
-       ./scripts/start.sh [--consumer=aggregate|duplicates] [--stats] [--skip-extensions-output] [--producers=N] [--consumers=N]
+       ./scripts/start.sh [--consumer=aggregate|duplicates] [--stats] [--producers=N] [--consumers=N]
                   [--queue-type=lbq|abq] [--queue-size=N] [--out=PATH] [--hard-delete] [--min-size=SIZE]
                   [--file-extensions=LIST] [--exclude=NAME1,NAME2,...] [path]
        ./scripts/start.sh --combinations   [--queue-type=lbq|abq] [--queue-size=N] [--out=FILE] [--errors=FILE] [path]
@@ -125,9 +125,8 @@ Usage: ./scripts/start.sh --build
                   cd's there before launching Java). Bash does NOT tee stdout in this mode.
   --stats         Print thread count, heap usage, and queue depth once per second during the scan (helpful
                   for watching backpressure in action).
-  --skip-extensions-output      Aggregate mode only. Skip the by-extension table in the printed result. The aggregation
-                  still runs; only the display is suppressed. Useful on huge trees where extension parsing
-                  produces thousands of garbage rows that bury the size-bucket summary.
+  --log-level=L   Logback root level. Default INFO. Set DEBUG to surface FolderScanner / DuplicateLocator
+                  skip diagnostics (locked dirs, denied ACLs, hash failures). Forwarded as -Dlog.level=L.
   --producers=N   Number of scanner (folder-walker) threads. Default: max(8, NCPU*4); directory walking is
                   IO-bound, so over-subscribing CPUs is intentional. Retune with --combinations.
   --consumers=N   Number of consumer drainer threads. Default: max(4, NCPU*2). For the duplicate locator
@@ -142,14 +141,10 @@ Usage: ./scripts/start.sh --build
                   Run the scan 16 times across {lbq,abq} x {4096,8192} x producers{100,64} x consumers{100,48}.
                   Verifies all 16 runs produce an identical result body and prints a sorted comparison table.
                   Overrides any --queue-type / --queue-size / --producers / --consumers on the same command.
-                  Always runs with --skip-extensions-output (per-run .out files would otherwise carry the huge by-extension
-                  table 16 times over). Aggregator only.
   --combinations  Run producer/consumer counts over {4,8,16,24,32,48,64,100} (64 combinations), in randomized
                   order to avoid filesystem-cache bias. Verifies every run produces an identical result (sha256
                   of the result body) and reports the top 5 fastest and bottom 5 slowest combinations,
                   including the JVM peak thread count for each. Ignores --producers/--consumers/--stats flags.
-                  Always runs with --skip-extensions-output (the by-extension table would drown out the comparison rows).
-                  Aggregator only.
   --out=FILE      Combinations modes: writes the sorted results table (one row per combination, with
                   seconds/threads/memMB/cpu%) plus the verification line to FILE; the per-line progress and
                   the on-screen summary still go to stdout. (Single-run / duplicates semantics described above.)
@@ -447,8 +442,7 @@ fi
 # In duplicates mode the script is written by Java via -Dout; do NOT tee
 # the run's stdout to OUT_FILE (that would clobber the generated .sh).
 if [ -n "$OUT_FILE" ] && [ "$CONSUMER_FLAG" != "-Dconsumer=duplicates" ]; then
-    # Tee stdout+stderr so the file captures the same thing the terminal sees,
-    # including the FolderScanner's skip-on-error stderr messages.
+    # Tee stdout+stderr so the file captures the same thing the terminal sees.
     exec java $FLAGS "${EXCLUDE_FLAG[@]}" -jar "$JAR" "$TARGET" 2>&1 | tee "$OUT_FILE"
 else
     exec java $FLAGS "${EXCLUDE_FLAG[@]}" -jar "$JAR" "$TARGET"
