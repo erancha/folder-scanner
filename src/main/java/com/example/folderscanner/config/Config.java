@@ -36,10 +36,10 @@ public record Config(
     public static Config parse(Properties props, int ncpu) {
         List<String> errors = new ArrayList<>();
 
-        int queueSize = parseIntOrDefault(props, "queuesize", 4096);
+        int queueSize = parseIntOrDefault(props, "queuesize", "--queue-size", 4096, errors);
         boolean stats = parseBool(props, "stats");
-        int producers = parseIntOrDefault(props, "producers", Math.max(8, ncpu * 4));
-        int consumers = parseIntOrDefault(props, "consumers", Math.max(4, ncpu * 2));
+        int producers = parseIntOrDefault(props, "producers", "--producers", Math.max(8, ncpu * 4), errors);
+        int consumers = parseIntOrDefault(props, "consumers", "--consumers", Math.max(4, ncpu * 2), errors);
         if (producers < 1) errors.add("producers must be >= 1");
         if (consumers < 1) errors.add("consumers must be >= 1");
 
@@ -75,14 +75,14 @@ public record Config(
                 hardDelete, minSizeBytes, excludeDirs, includeExtensions);
     }
 
-    private static int parseIntOrDefault(Properties props, String key, int def) {
+    private static int parseIntOrDefault(
+            Properties props, String key, String cliFlag, int def, List<String> errors) {
         String v = props.getProperty(key);
         if (v == null) return def;
         try {
             return Integer.parseInt(v.trim());
         } catch (NumberFormatException e) {
-            // Matches Integer.getInteger semantics: unparseable values silently fall back so a
-            // stray non-numeric -D doesn't crash the run before the explicit validation below.
+            errors.add(cliFlag + " must be an integer (got: " + v + ")");
             return def;
         }
     }

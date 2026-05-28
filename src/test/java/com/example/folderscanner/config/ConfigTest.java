@@ -146,10 +146,41 @@ final class ConfigTest {
     }
 
     @Test
-    void unparseable_int_falls_back_to_default_matching_integer_getinteger() {
+    void non_integer_queue_size_is_rejected() {
         Properties p = new Properties();
         p.setProperty("queuesize", "not-a-number");
-        assertEquals(4096, Config.parse(p, NCPU).queueSize());
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> Config.parse(p, NCPU));
+        assertTrue(ex.getMessage().contains("--queue-size"),
+                "expected --queue-size complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("not-a-number"),
+                "expected echoed bad value, got: " + ex.getMessage());
+    }
+
+    @Test
+    void non_integer_consumers_is_rejected_not_silently_defaulted() {
+        Properties p = new Properties();
+        p.setProperty("consumers", "banana");
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> Config.parse(p, NCPU));
+        assertTrue(ex.getMessage().contains("--consumers"),
+                "expected --consumers complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("banana"),
+                "expected echoed bad value, got: " + ex.getMessage());
+    }
+
+    @Test
+    void non_integer_int_flags_join_the_aggregated_error_message() {
+        Properties p = new Properties();
+        p.setProperty("queuesize", "big");
+        p.setProperty("producers", "many");
+        p.setProperty("consumers", "few");
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> Config.parse(p, NCPU));
+        String msg = ex.getMessage();
+        assertTrue(msg.contains("--queue-size"), msg);
+        assertTrue(msg.contains("--producers"), msg);
+        assertTrue(msg.contains("--consumers"), msg);
     }
 
     @Test
