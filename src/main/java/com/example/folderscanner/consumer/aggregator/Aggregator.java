@@ -1,5 +1,6 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.aggregator;
 
+import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
 import com.example.folderscanner.data.PathFileInfo;

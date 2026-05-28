@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.aggregator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

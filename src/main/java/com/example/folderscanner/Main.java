@@ -1,9 +1,9 @@
 package com.example.folderscanner;
 
 import com.example.folderscanner.config.Config;
-import com.example.folderscanner.consumer.Aggregator;
-import com.example.folderscanner.consumer.DuplicateLocator;
 import com.example.folderscanner.consumer.FileConsumer;
+import com.example.folderscanner.consumer.aggregator.Aggregator;
+import com.example.folderscanner.consumer.duplicates.DuplicateLocator;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
 import com.example.folderscanner.producer.FolderScanner;

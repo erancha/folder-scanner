@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.duplicates;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

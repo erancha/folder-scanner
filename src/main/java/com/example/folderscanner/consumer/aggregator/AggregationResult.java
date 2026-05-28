@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.aggregator;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;

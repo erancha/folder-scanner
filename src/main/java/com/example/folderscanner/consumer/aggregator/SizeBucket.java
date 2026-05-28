@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.aggregator;
 
 /**
  * Size buckets used by the aggregator. Boundaries are inclusive on the upper side so a file of

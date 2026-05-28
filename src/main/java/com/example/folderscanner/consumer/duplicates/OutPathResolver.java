@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.duplicates;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

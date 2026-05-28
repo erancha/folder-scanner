@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer;
+package com.example.folderscanner.consumer.duplicates;
 
 import java.io.IOException;
 import java.io.PrintWriter;
