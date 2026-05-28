@@ -8,13 +8,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Encodes absolute paths into flat bin filenames ('/' → '_', leading underscore stripped).
- * Collisions are resolved up front in encodeAll by appending ".1", ".2", ... in input order,
- * so the generated script never relies on shell-side collision handling at run time.
+ * Computes the destination filename each redundant file is renamed to when the soft-delete
+ * script moves it into the trash directory.
+ *
+ * The whole flat-naming problem is resolved up front: encodeAll assigns deterministic
+ * .1/.2/... suffixes to colliding inputs in arrival order, so the generated shell script
+ * is fully decided at generation time and never depends on runtime filesystem state to
+ * disambiguate targets.
  */
-public final class BinName {
+public final class SoftDeletePathEncoder {
 
-    private BinName() {}
+    private SoftDeletePathEncoder() {}
 
     /** Single-path encoding with no collision awareness. Use encodeAll for the batch case. */
     public static String encode(Path absolutePath) {

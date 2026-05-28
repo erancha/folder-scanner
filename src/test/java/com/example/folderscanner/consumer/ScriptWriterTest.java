@@ -63,7 +63,7 @@ final class ScriptWriterTest {
     /**
      * Pins the second injection site in the soft-delete mv command. The source path is
      * already escaped via shellQuote, but the bin-name half of "$BIN/<binname>" is
-     * substituted from BinName.encode, which only swaps '/' for '_' and leaves shell
+     * substituted from SoftDeletePathEncoder.encode, which only swaps '/' for '_' and leaves shell
      * metacharacters intact. A redundant file at /foo/bar";rm -rf $HOME;echo "x would
      * otherwise emit mv "..." "$BIN/foo_bar";rm -rf $HOME;echo "x" — every char after
      * the unescaped " is run as shell. The bin name must travel through the same

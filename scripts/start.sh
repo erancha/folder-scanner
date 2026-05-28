@@ -83,7 +83,7 @@ Usage: ./scripts/start.sh --build
                   run modes load classes from this jar, so run this once after changing any .java file.
   --test[=MODE]   Run the test suite and exit. MODE is unit (JUnit only, no jar needed), e2e (bash
                   harness only, jar required), or all (default when --test has no value: unit then e2e).
-                  Unit covers the pure helpers (Format, SizeBucket, BinName, OutPathResolver,
+                  Unit covers the pure helpers (Format, SizeBucket, SoftDeletePathEncoder, OutPathResolver,
                   ScriptWriter.shellQuote, Aggregator's extensionOf / classifyByDate). E2e drives
                   scripts/start.sh end-to-end against a fixture tree built under \$TMPDIR, including
                   the scripts/start.sh error-path branches the JUnit suite cannot reach. Does NOT

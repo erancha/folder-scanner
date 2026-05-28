@@ -11,25 +11,27 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for BinName. Pins the leading-slash stripping rule, the slash-to-underscore
- * substitution, and the deterministic .1/.2 collision resolution that the generated
- * shell script relies on to give each redundant file a unique destination filename.
+ * Unit tests for SoftDeletePathEncoder. Pins the leading-slash stripping rule, the
+ * slash-to-underscore substitution, and the deterministic .1/.2 collision resolution that
+ * the generated shell script relies on to give each redundant file a unique destination
+ * filename.
  */
-final class BinNameTest {
+final class SoftDeletePathEncoderTest {
 
     @Test
     void encode_replaces_slashes_with_underscores_and_drops_leading_underscore() {
-        assertEquals("home_user_file.txt", BinName.encode(Paths.get("/home/user/file.txt")));
+        assertEquals("home_user_file.txt",
+                SoftDeletePathEncoder.encode(Paths.get("/home/user/file.txt")));
     }
 
     @Test
     void encode_handles_relative_paths_without_dropping_a_real_character() {
-        assertEquals("a_b.txt", BinName.encode(Paths.get("a/b.txt")));
+        assertEquals("a_b.txt", SoftDeletePathEncoder.encode(Paths.get("a/b.txt")));
     }
 
     @Test
     void encodeAll_returns_plain_name_when_paths_do_not_collide() {
-        Map<Path, String> names = BinName.encodeAll(List.of(
+        Map<Path, String> names = SoftDeletePathEncoder.encodeAll(List.of(
                 Paths.get("/a/x.txt"),
                 Paths.get("/a/y.txt")));
         assertEquals("a_x.txt", names.get(Paths.get("/a/x.txt")));
@@ -41,7 +43,7 @@ final class BinNameTest {
         Path first  = Paths.get("/a/b/c.txt");
         Path second = Paths.get("/a_b/c.txt");          // encodes to same string as first
         Path third  = Paths.get("/a_b_c.txt");          // also encodes to same string
-        Map<Path, String> names = BinName.encodeAll(List.of(first, second, third));
+        Map<Path, String> names = SoftDeletePathEncoder.encodeAll(List.of(first, second, third));
 
         assertEquals("a_b_c.txt",   names.get(first));
         assertEquals("a_b_c.txt.1", names.get(second));
@@ -52,7 +54,7 @@ final class BinNameTest {
     void encodeAll_assigns_unique_names_to_every_input() {
         Path a = Paths.get("/x/y/z");
         Path b = Paths.get("/x_y/z");
-        Map<Path, String> names = BinName.encodeAll(List.of(a, b));
+        Map<Path, String> names = SoftDeletePathEncoder.encodeAll(List.of(a, b));
         assertNotEquals(names.get(a), names.get(b));
     }
 }

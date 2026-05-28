@@ -36,7 +36,7 @@ public final class ScriptWriter {
         List<Path> redundantPaths = report.groups().stream()
                 .flatMap(g -> g.paths().subList(1, g.paths().size()).stream())
                 .toList();
-        Map<Path, String> binNames = BinName.encodeAll(redundantPaths);
+        Map<Path, String> encodedNames = SoftDeletePathEncoder.encodeAll(redundantPaths);
 
         try (PrintWriter w = new PrintWriter(
                 Files.newBufferedWriter(scriptPath, StandardCharsets.UTF_8))) {
@@ -62,7 +62,7 @@ public final class ScriptWriter {
                         // Both source path and bin name are attacker-controlled (filenames in
                         // the scanned tree). Each interpolation site goes through shellQuote.
                         w.printf("mv \"%s\" \"$BIN/%s\"%n",
-                                shellQuote(p), shellQuoteString(binNames.get(p)));
+                                shellQuote(p), shellQuoteString(encodedNames.get(p)));
                     }
                 }
                 w.println();
