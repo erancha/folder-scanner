@@ -2,11 +2,21 @@ package com.example.folderscanner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.example.folderscanner.config.Config;
 import com.example.folderscanner.config.ConsumerKind;
 import com.example.folderscanner.config.ManageAction;
+import com.example.folderscanner.config.QueueType;
+import com.example.folderscanner.producer.FileExtensions;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Pins the tee decision and auto-naming that used to be inlined in Main.run(). Only the consumers
@@ -30,6 +40,25 @@ final class ReportTeeTest {
     @Test
     void script_emitting_duplicates_mode_does_not_tee() {
         assertFalse(ReportTee.tees(ConsumerKind.DUPLICATES, null));
+    }
+
+    @Test
+    void install_mirrors_through_an_explicit_stream_without_touching_System_out(@TempDir Path dir)
+            throws IOException {
+        Path outFile = dir.resolve("aggregate-report.out");
+        Config cfg = new Config(1024, false, 1, 1, QueueType.LBQ, ConsumerKind.AGGREGATE, null,
+                outFile.toString(), false, 0L, Set.of(), FileExtensions.IncludeSet.ALL, ".");
+
+        PrintStream original = System.out;
+        try (ReportTee tee = ReportTee.install(cfg)) {
+            assertSame(original, System.out,
+                    "install must not redirect the JVM-global System.out");
+            tee.out().print("mirrored-report-line");
+        }
+
+        assertSame(original, System.out, "close must leave System.out untouched");
+        assertTrue(Files.readString(outFile).contains("mirrored-report-line"),
+                "the explicit tee stream must mirror writes to the --out file");
     }
 
     @Test

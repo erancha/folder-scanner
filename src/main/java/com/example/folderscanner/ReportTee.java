@@ -16,20 +16,26 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Owns the optional mirroring of a consumer's stdout report to an {@code --out} file. Installing
- * redirects {@link System#out} through a {@link TeeOutputStream}; closing flushes, closes the file,
- * and restores the original stream. Only the report-producing consumers tee — the script-emitting
- * modes (duplicates, filemanager --action=delete) resolve {@code --out} as a script path themselves.
+ * yields the {@link PrintStream} a report is written through: either a tee that fans output to both
+ * the terminal and the file, or plain {@code System.out} when no file is requested. Closing flushes
+ * and closes the file. Only the report-producing consumers tee — the script-emitting modes
+ * (duplicates, filemanager --action=delete) resolve {@code --out} as a script path themselves.
  */
 final class ReportTee implements AutoCloseable {
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
-    private final PrintStream original;
+    private final PrintStream out;
     private final PrintStream teeFile;
 
-    private ReportTee(PrintStream original, PrintStream teeFile) {
-        this.original = original;
+    private ReportTee(PrintStream out, PrintStream teeFile) {
+        this.out = out;
         this.teeFile = teeFile;
+    }
+
+    /** Report stream: the tee when {@code --out} mirrors to a file, otherwise plain stdout. */
+    PrintStream out() {
+        return out;
     }
 
     /** True for the consumers whose primary output is a stdout report that {@code --out} mirrors. */
@@ -45,31 +51,29 @@ final class ReportTee implements AutoCloseable {
     }
 
     /**
-     * Redirects {@link System#out} to a tee when this run produces a report and {@code --out} was
-     * given; otherwise returns a no-op handle. A directory / trailing-slash {@code --out} is
-     * auto-named per consumer; a verbatim path is used as-is. Diagnostics on stderr stay
-     * terminal-only.
+     * Builds a tee stream when this run produces a report and {@code --out} was given; otherwise
+     * hands back plain {@code System.out}. A directory / trailing-slash {@code --out} is auto-named
+     * per consumer; a verbatim path is used as-is. Diagnostics on stderr stay terminal-only.
      */
     static ReportTee install(Config cfg) throws IOException {
-        PrintStream original = System.out;
+        PrintStream terminal = System.out;
         if (!tees(cfg.consumerKind(), cfg.action()) || cfg.outPath().isEmpty()) {
-            return new ReportTee(original, null);
+            return new ReportTee(terminal, null);
         }
         Path outFile = OutPathResolver.resolve(cfg.outPath(),
                 autoName(cfg.consumerKind(), LocalDateTime.now().format(STAMP)));
         PrintStream teeFile = new PrintStream(new BufferedOutputStream(Files.newOutputStream(outFile)),
                 false, StandardCharsets.UTF_8);
-        System.setOut(new PrintStream(new TeeOutputStream(original, teeFile), true,
-                StandardCharsets.UTF_8));
-        return new ReportTee(original, teeFile);
+        PrintStream tee = new PrintStream(new TeeOutputStream(terminal, teeFile), true,
+                StandardCharsets.UTF_8);
+        return new ReportTee(tee, teeFile);
     }
 
     @Override
     public void close() {
         if (teeFile != null) {
-            System.out.flush();
+            out.flush();
             teeFile.close();
-            System.setOut(original);
         }
     }
 

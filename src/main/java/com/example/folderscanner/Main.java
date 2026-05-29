@@ -9,6 +9,7 @@ import com.example.folderscanner.consumer.filemanager.FileManager;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
+import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Files;
@@ -100,32 +101,33 @@ public final class Main {
 
     static void run(Config cfg, Path root) throws Exception {
         try (ReportTee tee = ReportTee.install(cfg)) {
+            PrintStream out = tee.out();
             BlockingQueue<FileInfo> queue = createQueue(cfg);
             FileConsumer consumer = createConsumer(cfg, queue, root);
             FolderScanner scanner = new FolderScanner(queue, cfg.producers(), consumer.factory(),
                     cfg.excludeDirs(), cfg.includeExtensions(), cfg.minSizeBytes());
 
-            printScanHeader(cfg, root);
+            printScanHeader(out, cfg, root);
 
             long t0 = System.nanoTime();
             long cpu0 = OS_MX.getProcessCpuTime();
             consumer.start();
-            executeScan(scanner, consumer, queue, cfg, root, t0);
-            consumer.awaitAndReport(System.out);
+            executeScan(out, scanner, consumer, queue, cfg, root, t0);
+            consumer.awaitAndReport(out);
 
-            ReportPrinter.printFilterSummary(System.out, new ReportPrinter.FilterTally(
+            ReportPrinter.printFilterSummary(out, new ReportPrinter.FilterTally(
                     cfg.minSizeBytes(), scanner.filteredBySizeCount(), scanner.filteredBySizeBytes(),
                     cfg.includeExtensions(), scanner.filteredByExtensionCount(),
                     scanner.filteredByExtensionBytes(), scanner.inaccessibleDirCount(),
                     scanner.inaccessibleFileCount()));
 
             long elapsedNs = System.nanoTime() - t0;
-            ReportPrinter.printDone(System.out, elapsedNs / 1_000_000, consumer.totalFilesSeen(),
+            ReportPrinter.printDone(out, elapsedNs / 1_000_000, consumer.totalFilesSeen(),
                     consumer.totalBytesSeen());
-            printRunSummary(elapsedNs, cpu0);
-            
+            printRunSummary(out, elapsedNs, cpu0);
+
             if (cfg.statsEnabled())
-                printStats(queue, t0, cfg.queueSize());
+                printStats(out, queue, t0, cfg.queueSize());
         }
     }
 
@@ -152,12 +154,12 @@ public final class Main {
         };
     }
 
-    private static void printScanHeader(Config cfg, Path root) {
-        System.out.printf(
+    private static void printScanHeader(PrintStream out, Config cfg, Path root) {
+        out.printf(
                 "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n",
                 root, cfg.producers(), cfg.consumerKind().cliName(), cfg.consumers(),
                 cfg.queueType().cliName(), cfg.queueSize());
-        System.out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
+        out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
     }
 
     /**
@@ -165,7 +167,7 @@ public final class Main {
      * Under --stats a daemon timer prints a live queue-depth/heap/thread snapshot every second
      * while the main thread is blocked in {@code scanner.scan()}.
      */
-    private static void executeScan(FolderScanner scanner, FileConsumer consumer,
+    private static void executeScan(PrintStream out, FolderScanner scanner, FileConsumer consumer,
             BlockingQueue<FileInfo> queue, Config cfg, Path root, long t0)
             throws InterruptedException {
         ScheduledExecutorService statsTimer = null;
@@ -175,7 +177,7 @@ public final class Main {
                 t.setDaemon(true);
                 return t;
             });
-            statsTimer.scheduleAtFixedRate(() -> printStats(queue, t0, cfg.queueSize()), 1, 1,
+            statsTimer.scheduleAtFixedRate(() -> printStats(out, queue, t0, cfg.queueSize()), 1, 1,
                     TimeUnit.SECONDS);
         }
         try {
@@ -191,7 +193,7 @@ public final class Main {
     }
 
     /** cpu% = CPU consumed during run / wall time. >100% means effective multi-core use. */
-    private static void printRunSummary(long elapsedNs, long cpuStartNs) {
+    private static void printRunSummary(PrintStream out, long elapsedNs, long cpuStartNs) {
         long cpuNs = OS_MX.getProcessCpuTime() - cpuStartNs;
         double cpuPct = elapsedNs > 0 ? (cpuNs * 100.0 / elapsedNs) : 0.0;
         int threads = THREAD_MX.getThreadCount();
@@ -199,7 +201,7 @@ public final class Main {
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         long maxMb = rt.maxMemory() / (1024 * 1024);
-        System.out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n", threads,
+        out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n", threads,
                 peak, usedMb, maxMb, cpuPct);
     }
 
@@ -207,14 +209,15 @@ public final class Main {
      * Queue depth is the most informative signal: pinned at capacity means consumers are the
      * bottleneck; pinned near zero means producers are.
      */
-    private static void printStats(BlockingQueue<FileInfo> queue, long startNs, int queueCapacity) {
+    private static void printStats(PrintStream out, BlockingQueue<FileInfo> queue, long startNs,
+            int queueCapacity) {
         long elapsedS = (System.nanoTime() - startNs) / 1_000_000_000L;
         int threads = THREAD_MX.getThreadCount();
         int peak = THREAD_MX.getPeakThreadCount();
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         long maxMb = rt.maxMemory() / (1024 * 1024);
-        System.out.printf("[stat T+%3ds] threads=%d/%d  heapUsed=%dMB heapMax=%dMB  queue=%d/%d%n",
+        out.printf("[stat T+%3ds] threads=%d/%d  heapUsed=%dMB heapMax=%dMB  queue=%d/%d%n",
                 elapsedS, threads, peak, usedMb, maxMb, queue.size(), queueCapacity);
     }
 }
