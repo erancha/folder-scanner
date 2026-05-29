@@ -190,7 +190,7 @@ public final class DuplicateLocator implements FileConsumer {
                 phase1ElapsedMs, phase2ElapsedMs);
     }
 
-    private List<DuplicateReport.Group> confirmGroup(long size, List<Path> candidates) {
+    List<DuplicateReport.Group> confirmGroup(long size, List<Path> candidates) {
         Map<String, List<Path>> bySmall = new HashMap<>();
         for (Path p : candidates) {
             try {
