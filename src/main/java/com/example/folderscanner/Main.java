@@ -150,7 +150,7 @@ public final class Main {
         case DUPLICATES -> new DuplicateLocator(queue, cfg.consumers(), cfg.outPath(),
                 cfg.hardDelete(), root);
         case FILEMANAGER -> new FileManager(queue, cfg.consumers(), cfg.outPath(), cfg.action(),
-                cfg.hardDelete(), root);
+                cfg.hardDelete(), root, cfg.sortKey(), cfg.sortOrder());
         };
     }
 

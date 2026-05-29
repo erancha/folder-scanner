@@ -31,6 +31,22 @@ final class FormatTest {
     }
 
     @Test
+    void humanBytesColumn_right_aligns_a_one_decimal_numeric_field() {
+        // Numeric field is right-aligned to 5 chars ("999.9") so size columns line up on the dot.
+        assertEquals("  1.0 KB", Format.humanBytesColumn(1024));
+        assertEquals("  1.5 KB", Format.humanBytesColumn(1024 + 512));
+        assertEquals("512.0 KB", Format.humanBytesColumn(512L * 1024));
+        assertEquals("  1.0 MB", Format.humanBytesColumn(1024L * 1024));
+    }
+
+    @Test
+    void humanBytesColumn_right_aligns_raw_bytes_below_one_kilobyte() {
+        assertEquals("    0 B", Format.humanBytesColumn(0));
+        assertEquals("  337 B", Format.humanBytesColumn(337));
+        assertEquals(" 1023 B", Format.humanBytesColumn(1023));
+    }
+
+    @Test
     void parseSize_accepts_null_and_empty_as_zero() {
         assertEquals(0L, Format.parseSize(null));
         assertEquals(0L, Format.parseSize(""));

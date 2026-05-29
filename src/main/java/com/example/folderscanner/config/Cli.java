@@ -92,6 +92,18 @@ public final class Cli {
             "The script still prompts for the literal string DELETE first."})
     boolean hardDelete;
 
+    @Option(names = "--sort", paramLabel = "KEY", description = {
+            "Filemanager --action=list sort key. path (default): alphabetical.",
+            "date: by modified time. size: by file size."})
+    String sortRaw;
+
+    // null = flag absent, so the effective direction falls back to the sort key's natural default
+    // (path ascends; date/size lead with newest/largest) rather than a fixed asc/desc.
+    @Option(names = "--order", paramLabel = "DIR", description = {
+            "Listing sort direction: asc or desc.",
+            "Default: path ascends; date and size lead with newest/largest first."})
+    String orderRaw;
+
     // --- Bounded queue between producers and consumers ---
     @Option(names = "--queue-type", paramLabel = "T", description = {
             "Bounded-queue impl (default abq).",
@@ -131,8 +143,18 @@ public final class Cli {
         ConsumerKind consumerKind = ConsumerKind.parseOrCollect(consumerRaw, errors);
         ManageAction action = ManageAction.parseOrCollect(actionRaw, errors);
 
+        SortKey sortKey = SortKey.parseOrCollect(sortRaw, errors);
+        SortOrder sortOrder = orderRaw != null
+                ? SortOrder.parseOrCollect(orderRaw, errors)
+                : sortKey.defaultOrder();
+
         if (consumerKind != ConsumerKind.FILEMANAGER && actionRaw != null) {
             errors.add("--action only applies with --consumer=filemanager");
+        }
+        boolean filemanagerList = consumerKind == ConsumerKind.FILEMANAGER
+                && action == ManageAction.LIST;
+        if ((sortRaw != null || orderRaw != null) && !filemanagerList) {
+            errors.add("--sort/--order only apply with --consumer=filemanager --action=list");
         }
         boolean deletingFiles = consumerKind == ConsumerKind.FILEMANAGER
                 && action == ManageAction.DELETE;
@@ -162,7 +184,8 @@ public final class Cli {
         }
 
         return new Config(queueSizeV, stats, producersV, consumersV, queueType, consumerKind,
-                action, outPath, hardDelete, minSizeBytes, excludeDirs, includeExtensions, target);
+                action, sortKey, sortOrder, outPath, hardDelete, minSizeBytes, excludeDirs,
+                includeExtensions, target);
     }
 
     private static Set<String> parseExcludeDirs(String raw) {

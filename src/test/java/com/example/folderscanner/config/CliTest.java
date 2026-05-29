@@ -44,6 +44,8 @@ final class CliTest {
         assertEquals(QueueType.ABQ, cfg.queueType());
         assertEquals(ConsumerKind.AGGREGATE, cfg.consumerKind());
         assertEquals(ManageAction.LIST, cfg.action());
+        assertEquals(SortKey.PATH, cfg.sortKey());
+        assertEquals(SortOrder.ASC, cfg.sortOrder());
         assertEquals("", cfg.outPath());
         assertFalse(cfg.hardDelete());
         assertEquals(0L, cfg.minSizeBytes());
@@ -223,6 +225,68 @@ final class CliTest {
     }
 
     @Test
+    void sort_defaults_to_path_ascending_for_filemanager_list() {
+        Config cfg = parse("--consumer=filemanager");
+        assertEquals(SortKey.PATH, cfg.sortKey());
+        assertEquals(SortOrder.ASC, cfg.sortOrder());
+    }
+
+    @Test
+    void sort_by_size_defaults_to_descending() {
+        Config cfg = parse("--consumer=filemanager", "--sort=size");
+        assertEquals(SortKey.SIZE, cfg.sortKey());
+        assertEquals(SortOrder.DESC, cfg.sortOrder());
+    }
+
+    @Test
+    void sort_by_date_defaults_to_descending() {
+        Config cfg = parse("--consumer=filemanager", "--sort=date");
+        assertEquals(SortKey.DATE, cfg.sortKey());
+        assertEquals(SortOrder.DESC, cfg.sortOrder());
+    }
+
+    @Test
+    void explicit_order_overrides_the_keys_default_direction() {
+        Config cfg = parse("--consumer=filemanager", "--sort=size", "--order=asc");
+        assertEquals(SortKey.SIZE, cfg.sortKey());
+        assertEquals(SortOrder.ASC, cfg.sortOrder());
+    }
+
+    @Test
+    void unknown_sort_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=filemanager", "--sort=name"));
+        assertTrue(ex.getMessage().contains("--sort"),
+                "expected --sort complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("name"));
+    }
+
+    @Test
+    void unknown_order_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=filemanager", "--order=sideways"));
+        assertTrue(ex.getMessage().contains("--order"),
+                "expected --order complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("sideways"));
+    }
+
+    @Test
+    void sort_with_a_non_filemanager_consumer_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=aggregate", "--sort=size"));
+        assertTrue(ex.getMessage().contains("--sort/--order only apply"),
+                "expected --sort misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void sort_with_filemanager_delete_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=filemanager", "--action=delete", "--sort=size"));
+        assertTrue(ex.getMessage().contains("--sort/--order only apply"),
+                "expected --sort misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
     void semantic_validation_errors_aggregate_in_one_exception() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> parse("--queue-type=nope", "--consumer=nope", "--min-size=ten",
@@ -249,5 +313,10 @@ final class CliTest {
         assertEquals("filemanager", ConsumerKind.FILEMANAGER.cliName());
         assertEquals("list", ManageAction.LIST.cliName());
         assertEquals("delete", ManageAction.DELETE.cliName());
+        assertEquals("path", SortKey.PATH.cliName());
+        assertEquals("date", SortKey.DATE.cliName());
+        assertEquals("size", SortKey.SIZE.cliName());
+        assertEquals("asc", SortOrder.ASC.cliName());
+        assertEquals("desc", SortOrder.DESC.cliName());
     }
 }

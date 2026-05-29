@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.folderscanner.config.ManageAction;
+import com.example.folderscanner.config.SortKey;
+import com.example.folderscanner.config.SortOrder;
 import com.example.folderscanner.data.ExtensionFileInfo;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
@@ -26,8 +28,9 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Unit tests for FileManager. Pins consume()'s dispatch over the sealed FileInfo hierarchy (a wrong
  * subtype must surface as IllegalStateException rather than a silent cast on a pool thread), the
- * list report (path-sorted "path size modified" lines plus a total), and the delete report (soft
- * quarantine vs hard rm script, and the empty short-circuit that writes no script).
+ * list report (its configurable path/date/size sort key and asc/desc direction, plus a total), and
+ * the delete report (soft quarantine vs hard rm script, and the empty short-circuit that writes no
+ * script).
  */
 final class FileManagerTest {
 
@@ -40,7 +43,8 @@ final class FileManagerTest {
     void consume_rejects_wrong_FileInfo_subtype_with_IllegalStateException()
             throws InterruptedException {
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(2);
-        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, Paths.get("/tmp"));
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, Paths.get("/tmp"),
+                SortKey.PATH, SortOrder.ASC);
         queue.put(new ExtensionFileInfo("txt", 100L, 0L));
         queue.put(FileInfo.POISON);
         assertThrows(IllegalStateException.class, fm::consume);
@@ -54,19 +58,96 @@ final class FileManagerTest {
         queue.put(new PathFileInfo(Paths.get("/a/first.txt"), 1L, T1));
         queue.put(FileInfo.POISON);
 
-        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir);
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.PATH, SortOrder.ASC);
         String out = run(fm);
 
+        assertTrue(out.contains("Files (path  modified  size)"),
+                "path sort must lead with the path column; was:\n" + out);
         assertTrue(out.contains("/a/first.txt"), out);
         assertTrue(out.contains("/z/last.bin"), out);
         assertTrue(out.indexOf("/a/first.txt") < out.indexOf("/z/last.bin"),
                 "listing must be sorted by path; was:\n" + out);
-        assertTrue(out.contains("2.00 KB"), "size column missing humanBytes; was:\n" + out);
+        assertTrue(out.contains("2.0 KB"),
+                "size column missing right-aligned one-decimal size; was:\n" + out);
         assertTrue(out.contains(com.example.folderscanner.data.Format.formatTimestamp(T1)),
                 "modified column missing; was:\n" + out);
         assertTrue(out.contains("Listed 2 files"), out);
         assertEquals(2, fm.totalFilesSeen());
         assertEquals(2049L, fm.totalBytesSeen());
+    }
+
+    @Test
+    void list_sorts_by_size_descending_largest_first() throws Exception {
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        queue.put(new PathFileInfo(Paths.get("/small.bin"), 10L, T1));
+        queue.put(new PathFileInfo(Paths.get("/big.bin"), 9000L, T1));
+        queue.put(FileInfo.POISON);
+
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.SIZE, SortOrder.DESC);
+        String out = run(fm);
+
+        assertTrue(out.indexOf("/big.bin") < out.indexOf("/small.bin"),
+                "size desc must list the largest file first; was:\n" + out);
+    }
+
+    @Test
+    void list_sorts_by_size_ascending_smallest_first() throws Exception {
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        queue.put(new PathFileInfo(Paths.get("/big.bin"), 9000L, T1));
+        queue.put(new PathFileInfo(Paths.get("/small.bin"), 10L, T1));
+        queue.put(FileInfo.POISON);
+
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.SIZE, SortOrder.ASC);
+        String out = run(fm);
+
+        assertTrue(out.indexOf("/small.bin") < out.indexOf("/big.bin"),
+                "size asc must list the smallest file first; was:\n" + out);
+    }
+
+    @Test
+    void list_by_size_leads_with_the_size_column() throws Exception {
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(4);
+        queue.put(new PathFileInfo(Paths.get("/a.bin"), 10L, T1));
+        queue.put(FileInfo.POISON);
+
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.SIZE, SortOrder.DESC);
+        String out = run(fm);
+
+        assertTrue(out.contains("Files (size  path  modified)"),
+                "size sort must lead with the size column; was:\n" + out);
+    }
+
+    @Test
+    void list_by_date_leads_with_the_modified_column() throws Exception {
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(4);
+        queue.put(new PathFileInfo(Paths.get("/a.bin"), 10L, T1));
+        queue.put(FileInfo.POISON);
+
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.DATE, SortOrder.DESC);
+        String out = run(fm);
+
+        assertTrue(out.contains("Files (modified  size  path)"),
+                "date sort must lead with the modified column; was:\n" + out);
+    }
+
+    @Test
+    void list_sorts_by_date_descending_newest_first() throws Exception {
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        queue.put(new PathFileInfo(Paths.get("/old.bin"), 1L, T1));
+        queue.put(new PathFileInfo(Paths.get("/new.bin"), 1L, T1 + 86_400_000L));
+        queue.put(FileInfo.POISON);
+
+        FileManager fm = new FileManager(queue, 1, "", ManageAction.LIST, false, dir,
+                SortKey.DATE, SortOrder.DESC);
+        String out = run(fm);
+
+        assertTrue(out.indexOf("/new.bin") < out.indexOf("/old.bin"),
+                "date desc must list the most recently modified file first; was:\n" + out);
     }
 
     @Test
@@ -78,7 +159,8 @@ final class FileManagerTest {
         queue.put(FileInfo.POISON);
 
         FileManager fm =
-                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, false, dir);
+                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, false, dir,
+                        SortKey.PATH, SortOrder.ASC);
         String out = run(fm);
 
         assertTrue(Files.exists(script), "delete script must be written");
@@ -99,7 +181,8 @@ final class FileManagerTest {
         queue.put(FileInfo.POISON);
 
         FileManager fm =
-                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, true, dir);
+                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, true, dir,
+                        SortKey.PATH, SortOrder.ASC);
         String out = run(fm);
 
         assertTrue(out.contains("to hard-delete"), out);
@@ -117,7 +200,8 @@ final class FileManagerTest {
         queue.put(FileInfo.POISON);
 
         FileManager fm =
-                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, false, dir);
+                new FileManager(queue, 1, script.toString(), ManageAction.DELETE, false, dir,
+                        SortKey.PATH, SortOrder.ASC);
         String out = run(fm);
 
         assertTrue(out.contains("no files matched"), out);

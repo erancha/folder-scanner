@@ -9,6 +9,8 @@ import com.example.folderscanner.config.Config;
 import com.example.folderscanner.config.ConsumerKind;
 import com.example.folderscanner.config.ManageAction;
 import com.example.folderscanner.config.QueueType;
+import com.example.folderscanner.config.SortKey;
+import com.example.folderscanner.config.SortOrder;
 import com.example.folderscanner.producer.FileExtensions;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -47,7 +49,8 @@ final class ReportTeeTest {
             throws IOException {
         Path outFile = dir.resolve("aggregate-report.out");
         Config cfg = new Config(1024, false, 1, 1, QueueType.LBQ, ConsumerKind.AGGREGATE, null,
-                outFile.toString(), false, 0L, Set.of(), FileExtensions.IncludeSet.ALL, ".");
+                SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, Set.of(),
+                FileExtensions.IncludeSet.ALL, ".");
 
         PrintStream original = System.out;
         try (ReportTee tee = ReportTee.install(cfg)) {

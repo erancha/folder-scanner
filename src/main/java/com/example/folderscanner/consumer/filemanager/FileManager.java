@@ -1,6 +1,8 @@
 package com.example.folderscanner.consumer.filemanager;
 
 import com.example.folderscanner.config.ManageAction;
+import com.example.folderscanner.config.SortKey;
+import com.example.folderscanner.config.SortOrder;
 import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.ExtensionFileInfo;
@@ -43,6 +45,8 @@ public final class FileManager implements FileConsumer {
     private final ManageAction action;
     private final boolean hardDelete;
     private final Path sourceTree;
+    private final SortKey sortKey;
+    private final SortOrder sortOrder;
 
     // Every file surviving the producer filters; multiple drainers append concurrently.
     private final Queue<PathFileInfo> matched = new ConcurrentLinkedQueue<>();
@@ -50,7 +54,8 @@ public final class FileManager implements FileConsumer {
     private final LongAdder totalBytes = new LongAdder();
 
     public FileManager(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
-            ManageAction action, boolean hardDelete, Path sourceTree) {
+            ManageAction action, boolean hardDelete, Path sourceTree, SortKey sortKey,
+            SortOrder sortOrder) {
         if (consumerThreads < 1)
             throw new IllegalArgumentException("consumerThreads must be >= 1");
         this.queue = queue;
@@ -58,6 +63,8 @@ public final class FileManager implements FileConsumer {
         this.action = action;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
+        this.sortKey = sortKey;
+        this.sortOrder = sortOrder;
         this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
     }
 
@@ -114,7 +121,7 @@ public final class FileManager implements FileConsumer {
             throw new IllegalStateException("file manager did not terminate within 1 hour");
         }
         List<PathFileInfo> files = new ArrayList<>(matched);
-        files.sort(Comparator.comparing(p -> p.path().toString()));
+        files.sort(listingComparator());
         if (action == ManageAction.DELETE) {
             reportDelete(out, files);
         } else {
@@ -122,11 +129,48 @@ public final class FileManager implements FileConsumer {
         }
     }
 
+    // Column widths used while a column precedes others, so the next column starts at a fixed
+    // offset; a path long enough to overflow PATH_COLUMN_WIDTH pushes the rest right rather than
+    // truncating. The variable-length path is placed last for date/size sorts and needs no width.
+    private static final int PATH_COLUMN_WIDTH = 125;
+    private static final int SIZE_COLUMN_WIDTH = 8; // widest humanBytesColumn cell, e.g. "999.9 KB"
+
+    private Comparator<PathFileInfo> listingComparator() {
+        Comparator<PathFileInfo> base = switch (sortKey) {
+        case PATH -> Comparator.comparing((PathFileInfo p) -> p.path().toString());
+        case DATE -> Comparator.comparingLong(PathFileInfo::lastModifiedMillis);
+        case SIZE -> Comparator.comparingLong(PathFileInfo::size);
+        };
+        return sortOrder == SortOrder.DESC ? base.reversed() : base;
+    }
+
+    // The sorted dimension leads the row so the listing reads in the order it is ranked. Columns
+    // preceding the path are fixed-width; the path is padded to a fixed width unless it is the
+    // final column (date sort), so whatever follows it still lines up across rows.
+    private String listingHeader() {
+        return switch (sortKey) {
+        case PATH -> "path  modified  size";
+        case DATE -> "modified  size  path";
+        case SIZE -> "size  path  modified";
+        };
+    }
+
+    private String formatListRow(PathFileInfo p) {
+        String path = p.path().toString();
+        String modified = Format.formatTimestamp(p.lastModifiedMillis());
+        String size = Format.humanBytesColumn(p.size());
+        return switch (sortKey) {
+        case PATH -> String.format("%-" + PATH_COLUMN_WIDTH + "s  %s  %s", path, modified, size);
+        case DATE -> String.format("%s  %-" + SIZE_COLUMN_WIDTH + "s  %s", modified, size, path);
+        case SIZE -> String.format("%-" + SIZE_COLUMN_WIDTH + "s  %-" + PATH_COLUMN_WIDTH + "s  %s",
+                size, path, modified);
+        };
+    }
+
     private void reportList(PrintStream out, List<PathFileInfo> files) {
-        out.println("\nFiles (path  size  modified):");
+        out.printf("%nFiles (%s):%n", listingHeader());
         for (PathFileInfo p : files) {
-            out.printf("%s  %s  %s%n", p.path(), Format.humanBytes(p.size()),
-                    Format.formatTimestamp(p.lastModifiedMillis()));
+            out.println(formatListRow(p));
         }
         out.printf("%nListed %,d files (%s).%n", totalFiles.sum(),
                 Format.humanBytes(totalBytes.sum()));

@@ -24,11 +24,29 @@ public final class Format {
     /** Byte count in B/KB/MB/GB/TB. Scale rolls up to the unit that keeps the value below 1024. */
     public static String humanBytes(long bytes) {
         if (bytes < 1024) return bytes + " B";
+        Scaled s = scale(bytes);
+        return String.format("%.2f %s", s.value, s.unit);
+    }
+
+    /**
+     * humanBytes for a fixed-width size column: one decimal, numeric field right-aligned to 5
+     * chars ("999.9") so values line up on the decimal point when printed one per line.
+     */
+    public static String humanBytesColumn(long bytes) {
+        if (bytes < 1024) return String.format("%5d B", bytes);
+        Scaled s = scale(bytes);
+        return String.format("%5.1f %s", s.value, s.unit);
+    }
+
+    // Value scaled into the largest unit that keeps it below 1024, paired with that unit's label.
+    private record Scaled(double value, String unit) {}
+
+    private static Scaled scale(long bytes) {
         double v = bytes;
         String[] units = { "KB", "MB", "GB", "TB" };
         int i = -1;
         do { v /= 1024.0; i++; } while (v >= 1024 && i < units.length - 1);
-        return String.format("%.2f %s", v, units[i]);
+        return new Scaled(v, units[i]);
     }
 
     /**
