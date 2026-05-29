@@ -125,8 +125,9 @@ summarize() {
     fi
 }
 
-echo "NOTE: basic tuning aid, not a real benchmark — one run per config in a fresh JVM, sorted"
-echo "      by wall time. Single runs are noisy; treat the ordering as a hint, not a measurement."
+echo
+echo "NOTE: running a basic tuning aid, not a real benchmark — one run per config in a fresh JVM,"
+echo "      sorted by wall time. Single runs are noisy; treat the ordering as a hint, not a measurement."
 echo
 
 # Warm up the FS cache once so the first measured run isn't disproportionately slow.
