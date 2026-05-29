@@ -125,6 +125,14 @@ public final class Main {
                     cfg.includeExtensions().displayList(), scanner.filteredByExtensionCount(),
                     Format.humanBytes(scanner.filteredByExtensionBytes()));
         }
+        long inaccessibleDirs = scanner.inaccessibleDirCount();
+        long inaccessibleFiles = scanner.inaccessibleFileCount();
+        if (inaccessibleDirs > 0 || inaccessibleFiles > 0) {
+            System.out.printf(
+                    "%nInaccessible (permission denied or IO error): %,d directories, %,d files "
+                            + "— their contents are absent from this report.%n",
+                    inaccessibleDirs, inaccessibleFiles);
+        }
 
         long elapsedNs = System.nanoTime() - t0;
         long elapsedMs = elapsedNs / 1_000_000;
