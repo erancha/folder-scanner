@@ -2,6 +2,7 @@ package com.example.folderscanner.producer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
@@ -9,8 +10,12 @@ import com.example.folderscanner.data.PoisonPill;
 import com.example.folderscanner.data.ExtensionFileInfo;
 
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -136,7 +141,74 @@ final class FolderScannerFilterTest {
         assertTrue(names.isEmpty(), "non-directory root should enqueue no files; was " + names);
     }
 
+    @Test
+    void unreadable_directory_is_counted_not_silently_skipped(@TempDir Path root) throws Exception {
+        // A permission-denied subtree must not vanish silently: the user needs the count to judge
+        // whether the duplicate/aggregate report is complete. `locked` is listed by its parent but
+        // its own contents cannot be enumerated.
+        assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"),
+                "POSIX permissions required to simulate a permission-denied directory");
+        writeBytes(root.resolve("visible.txt"), 100);
+        Path locked = Files.createDirectory(root.resolve("locked"));
+        writeBytes(locked.resolve("hidden.txt"), 100);
+        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("---------"));
+        assumeTrue(!Files.isReadable(locked), "running as root bypasses permission checks");
+
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
+                Set.of(), FileExtensions.IncludeSet.ALL, 0L);
+        try {
+            Set<String> names = drainNames(scanner, root, queue);
+            assertEquals(Set.of("visible.txt"), names, "hidden.txt is behind the locked directory");
+            assertEquals(1, scanner.inaccessibleDirCount(),
+                    "the unlistable directory must be counted");
+        } finally {
+            // Restore permissions so @TempDir cleanup can delete the tree.
+            Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwxrwxrwx"));
+        }
+    }
+
+    @Test
+    void unreadable_file_attributes_are_counted_not_silently_skipped(@TempDir Path root)
+            throws Exception {
+        // A directory readable but not executable (r--) can be listed, but its children cannot be
+        // stat'd — readAttributes fails per child. Those skips must be counted, not lost.
+        assumeTrue(FileSystems.getDefault().supportedFileAttributeViews().contains("posix"),
+                "POSIX permissions required to simulate unreadable file attributes");
+        writeBytes(root.resolve("visible.txt"), 100);
+        Path noexec = Files.createDirectory(root.resolve("noexec"));
+        writeBytes(noexec.resolve("stat-me.txt"), 100);
+        Files.setPosixFilePermissions(noexec, PosixFilePermissions.fromString("r--------"));
+        assumeTrue(!canReadChildAttributes(noexec.resolve("stat-me.txt")),
+                "running as root bypasses permission checks");
+
+        BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(8);
+        FolderScanner scanner = new FolderScanner(queue, 2, PATH_FACTORY,
+                Set.of(), FileExtensions.IncludeSet.ALL, 0L);
+        try {
+            Set<String> names = drainNames(scanner, root, queue);
+            assertEquals(Set.of("visible.txt"), names, "stat-me.txt's attributes are unreadable");
+            assertEquals(1, scanner.inaccessibleFileCount(),
+                    "the un-stat-able file must be counted");
+            assertEquals(0, scanner.inaccessibleDirCount(),
+                    "noexec itself is listable, so it is not an inaccessible directory");
+        } finally {
+            // Restore permissions so @TempDir cleanup can delete the tree.
+            Files.setPosixFilePermissions(noexec, PosixFilePermissions.fromString("rwxrwxrwx"));
+        }
+    }
+
     // ---- helpers ----
+
+    /** True if the entry's attributes can be read; used to detect root, which bypasses POSIX bits. */
+    private static boolean canReadChildAttributes(Path entry) {
+        try {
+            Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
 
     /** Writes `size` zero bytes at `p`. */
     private static void writeBytes(Path p, int size) throws IOException {

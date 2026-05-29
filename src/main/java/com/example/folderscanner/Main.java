@@ -96,11 +96,14 @@ public final class Main {
         run(cfg, root);
     }
 
-    /** Sets the logback root level at runtime so {@code --log-level} stays a parsed flag, not a -D. */
+    /**
+     * Sets the logback root level at runtime so {@code --log-level} stays a parsed flag, not a -D.
+     */
     private static void applyLogLevel(String level) {
         ch.qos.logback.classic.Logger root = (ch.qos.logback.classic.Logger) LoggerFactory
                 .getLogger(Logger.ROOT_LOGGER_NAME);
-        root.setLevel(ch.qos.logback.classic.Level.toLevel(level, ch.qos.logback.classic.Level.INFO));
+        root.setLevel(
+                ch.qos.logback.classic.Level.toLevel(level, ch.qos.logback.classic.Level.INFO));
     }
 
     static void run(Config cfg, Path root) throws Exception {
@@ -112,8 +115,8 @@ public final class Main {
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     + ".out";
             Path outFile = OutPathResolver.resolve(cfg.outPath(), stamp);
-            teeFile = new PrintStream(new BufferedOutputStream(Files.newOutputStream(outFile)), false,
-                    StandardCharsets.UTF_8);
+            teeFile = new PrintStream(new BufferedOutputStream(Files.newOutputStream(outFile)),
+                    false, StandardCharsets.UTF_8);
             System.setOut(new PrintStream(new TeeOutputStream(System.out, teeFile), true,
                     StandardCharsets.UTF_8));
         }
@@ -149,7 +152,8 @@ public final class Main {
 
             // Under --stats, prints a live queue-depth/heap/thread snapshot every second so the
             // user can watch backpressure as the scan runs. Needs its own thread because main
-            // is about to block in scanner.scan(). Daemon so it can't keep the JVM alive on its own.
+            // is about to block in scanner.scan(). Daemon so it can't keep the JVM alive on its
+            // own.
             ScheduledExecutorService statsTimer = null;
             if (cfg.statsEnabled()) {
                 statsTimer = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -183,6 +187,14 @@ public final class Main {
                 System.out.printf("%nSkipped (extension not in %s): %,d files (%s).%n",
                         cfg.includeExtensions().displayList(), scanner.filteredByExtensionCount(),
                         Format.humanBytes(scanner.filteredByExtensionBytes()));
+            }
+            long inaccessibleDirs = scanner.inaccessibleDirCount();
+            long inaccessibleFiles = scanner.inaccessibleFileCount();
+            if (inaccessibleDirs > 0 || inaccessibleFiles > 0) {
+                System.out.printf(
+                        "%nInaccessible (permission denied or IO error): %,d directories, %,d files "
+                                + "— their contents are absent from this report.%n",
+                        inaccessibleDirs, inaccessibleFiles);
             }
 
             long elapsedNs = System.nanoTime() - t0;

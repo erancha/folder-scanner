@@ -105,6 +105,15 @@ final class CliTest {
     }
 
     @Test
+    void malformed_boolean_flag_value_is_rejected_by_the_parser() {
+        // --stats/--hard-delete are presence flags; an explicit non-boolean value is a parse error
+        // rather than silently defaulting to false.
+        Cli cli = new Cli();
+        assertThrows(ParameterException.class,
+                () -> commandLine(cli).parseArgs("--stats=ys"));
+    }
+
+    @Test
     void queue_type_is_case_insensitive() {
         assertEquals(QueueType.ABQ, parse("--queue-type=ABQ").queueType());
         assertEquals(QueueType.LBQ, parse("--queue-type=Lbq").queueType());

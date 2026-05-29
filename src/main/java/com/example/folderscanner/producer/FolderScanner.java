@@ -28,7 +28,12 @@ public final class FolderScanner {
     /**
      * Channel for recoverable per-entry IO failures (unreadable directories or attributes). These
      * are expected during a deep walk — locked system folders, denied ACLs, transient races — so
-     * they are emitted at DEBUG and stay below the default Logback threshold.
+     * each one is emitted only at DEBUG and stays below the default Logback threshold: surfacing a
+     * line per skipped entry would bury the report under noise on permission-restricted trees.
+     *
+     * Suppressing the per-error detail must not hide that skips happened, so the failures are
+     * tallied in {@link #inaccessibleDirCount} / {@link #inaccessibleFileCount} and reported once
+     * at end of run — the user needs the count to judge whether the output is complete.
      */
     private static final Logger LOGGER = LoggerFactory.getLogger(FolderScanner.class);
 
@@ -43,6 +48,8 @@ public final class FolderScanner {
     private final LongAdder filteredBySizeBytes = new LongAdder();
     private final LongAdder filteredByExtensionCount = new LongAdder();
     private final LongAdder filteredByExtensionBytes = new LongAdder();
+    private final LongAdder inaccessibleDirCount = new LongAdder();
+    private final LongAdder inaccessibleFileCount = new LongAdder();
 
     public FolderScanner(BlockingQueue<FileInfo> queue, int parallelism, FileInfoFactory factory,
             Set<String> skipDirNames, FileExtensions.IncludeSet includeExtensions,
@@ -92,6 +99,14 @@ public final class FolderScanner {
         return filteredByExtensionBytes.sum();
     }
 
+    public long inaccessibleDirCount() {
+        return inaccessibleDirCount.sum();
+    }
+
+    public long inaccessibleFileCount() {
+        return inaccessibleFileCount.sum();
+    }
+
     /** One task per directory: enumerate children, fork subdirs, enqueue regular files, join. */
     private final class ScanTask extends RecursiveAction {
 
@@ -113,6 +128,7 @@ public final class FolderScanner {
                         attrs = Files.readAttributes(child, BasicFileAttributes.class,
                                 LinkOption.NOFOLLOW_LINKS);
                     } catch (IOException e) {
+                        inaccessibleFileCount.increment();
                         LOGGER.debug("skip (attrs unreadable): {} — {}", child, e.getMessage());
                         continue;
                     }
@@ -148,6 +164,7 @@ public final class FolderScanner {
                     }
                 }
             } catch (IOException e) {
+                inaccessibleDirCount.increment();
                 LOGGER.debug("skip (dir unreadable): {} — {}", dir, e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
