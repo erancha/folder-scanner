@@ -37,7 +37,7 @@ public record Config(
         List<String> errors = new ArrayList<>();
 
         int queueSize = parseIntOrDefault(props, "queuesize", "--queue-size", 4096, errors);
-        boolean stats = parseBool(props, "stats");
+        boolean stats = parseBool(props, "stats", "--stats", errors);
         int producers = parseIntOrDefault(props, "producers", "--producers", Math.max(8, ncpu * 4), errors);
         int consumers = parseIntOrDefault(props, "consumers", "--consumers", Math.max(4, ncpu * 2), errors);
         if (producers < 1) errors.add("producers must be >= 1");
@@ -48,7 +48,7 @@ public record Config(
                 props.getProperty("consumer", "aggregate"), errors);
 
         String outPath = props.getProperty("out", "");
-        boolean hardDelete = parseBool(props, "harddelete");
+        boolean hardDelete = parseBool(props, "harddelete", "--hard-delete", errors);
 
         long minSizeBytes = 0L;
         try {
@@ -87,8 +87,15 @@ public record Config(
         }
     }
 
-    private static boolean parseBool(Properties props, String key) {
-        return Boolean.parseBoolean(props.getProperty(key, "false"));
+    private static boolean parseBool(
+            Properties props, String key, String cliFlag, List<String> errors) {
+        String v = props.getProperty(key);
+        if (v == null) return false;
+        String t = v.trim();
+        if (t.equalsIgnoreCase("true")) return true;
+        if (t.equalsIgnoreCase("false")) return false;
+        errors.add(cliFlag + " must be true or false (got: " + v + ")");
+        return false;
     }
 
     private static Set<String> parseExcludeDirs(String raw) {

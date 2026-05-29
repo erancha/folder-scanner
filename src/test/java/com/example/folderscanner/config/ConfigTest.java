@@ -184,6 +184,39 @@ final class ConfigTest {
     }
 
     @Test
+    void malformed_hard_delete_is_rejected_not_silently_defaulted() {
+        Properties p = new Properties();
+        p.setProperty("harddelete", "ys");
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> Config.parse(p, NCPU));
+        assertTrue(ex.getMessage().contains("--hard-delete"),
+                "expected --hard-delete complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("ys"),
+                "expected echoed bad value, got: " + ex.getMessage());
+    }
+
+    @Test
+    void malformed_stats_is_rejected_not_silently_defaulted() {
+        Properties p = new Properties();
+        p.setProperty("stats", "1");
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> Config.parse(p, NCPU));
+        assertTrue(ex.getMessage().contains("--stats"),
+                "expected --stats complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void boolean_flags_are_case_insensitive() {
+        Properties p = new Properties();
+        p.setProperty("stats", "TRUE");
+        p.setProperty("harddelete", "False");
+        p.setProperty("consumer", "duplicates");
+        Config cfg = Config.parse(p, NCPU);
+        assertTrue(cfg.statsEnabled());
+        assertFalse(cfg.hardDelete());
+    }
+
+    @Test
     void cli_names_match_the_user_facing_tokens() {
         assertEquals("abq", QueueType.ABQ.cliName());
         assertEquals("lbq", QueueType.LBQ.cliName());
