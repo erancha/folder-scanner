@@ -85,11 +85,11 @@ public final class ShellScript {
      * arguments (\, ", $, `). Order matters: backslash must be replaced first, otherwise the
      * substitutions added by the later steps would themselves get re-escaped.
      *
-     * Limitation: literal newlines and other control characters are passed through unchanged.
-     * On Unix, a filename can legitimately contain {@code \n}, and the resulting {@code mv}
-     * or {@code rm} line would be split across two shell commands. Out of scope for the
-     * target environments (these scripts run against user data trees, not adversarial fuzzing
-     * inputs); called out here so a future caller does not assume otherwise.
+     * Newlines and other control characters need no escaping and pass through unchanged: bash
+     * keeps a literal newline as part of the surrounding double-quoted word, so the emitted
+     * {@code mv}/{@code rm} line still targets the single file named verbatim — it is not split
+     * across commands. This is the only correctness guarantee that matters here; the four
+     * metacharacters above are the complete set this routine must neutralize.
      */
     public static String shellQuote(Path p) {
         return shellQuoteString(p.toString());

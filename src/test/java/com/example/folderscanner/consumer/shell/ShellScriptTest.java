@@ -1,12 +1,16 @@
 package com.example.folderscanner.consumer.shell;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -65,6 +69,32 @@ final class ShellScriptTest {
         StringWriter sw = new StringWriter();
         ShellScript.emitDeletion(new PrintWriter(sw), Paths.get("/a/b.txt"), "unused", true);
         assertEquals("rm \"/a/b.txt\"\n", sw.toString());
+    }
+
+    @Test
+    void newline_in_filename_stays_one_rm_target_when_executed_by_bash() throws Exception {
+        // A literal newline inside a double-quoted word is preserved by bash as part of the single
+        // word, so the emitted `rm "..."` line targets exactly the one real file — it is not split
+        // into two commands. Proven end-to-end by running the line and asserting the file is gone.
+        Assumptions.assumeTrue(Files.isExecutable(Paths.get("/bin/bash")), "bash required");
+        Path dir = Files.createTempDirectory("shellquote");
+        Path victim;
+        try {
+            victim = Files.createFile(dir.resolve("a\nb.txt"));
+        } catch (java.io.IOException unsupported) {
+            Assumptions.abort("filesystem rejects newline in filename: " + unsupported.getMessage());
+            return;
+        }
+
+        StringWriter sw = new StringWriter();
+        ShellScript.emitDeletion(new PrintWriter(sw), victim, "unused", true);
+
+        Process p = new ProcessBuilder("/bin/bash", "-c", sw.toString())
+                .redirectErrorStream(true).start();
+        int exit = p.waitFor();
+
+        assertEquals(0, exit, "rm line should run cleanly as a single command");
+        assertFalse(Files.exists(victim), "the one newline-named file should be deleted");
     }
 
     @Test
