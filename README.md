@@ -3,16 +3,19 @@
 A CLI utility that walks a directory tree in parallel and feeds every file to a pluggable consumer.
 The producer (scanner) and the consumer run on separate thread pools
 connected by a bounded queue — when the queue fills, the producer blocks, so
-heap stays flat regardless of tree size. Two consumers are currently available:
+heap stays flat regardless of tree size. Three consumers are currently available:
 
 - `aggregate` — counts and bytes per extension, size bucket, and date bucket.
 - `duplicates` — finds identical-content files and writes a shell script that
   quarantines them (or, with `--hard-delete`, removes them outright).
+- `filemanager` — lists (`--action=list`, the default) or deletes
+  (`--action=delete`) the files surviving the producer filters; deletion writes a
+  shell script that quarantines them (or, with `--hard-delete`, removes them).
 
 ```mermaid
 flowchart LR
     FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
-    Q --> C["Aggregator OR DuplicateLocator<br/><br/>(one selected per run)"]
+    Q --> C["Aggregator OR DuplicateLocator OR FileManager<br/><br/>(one selected per run)"]
 ```
 
 The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
@@ -28,6 +31,10 @@ Requires Java 21 and Maven on PATH.
 ./scripts/start.sh --build                                                 # one-time: mvn clean package
 ./scripts/start.sh --exclude=.git,target                                   # aggregates the current folder
 ./scripts/start.sh --consumer=duplicates --exclude=.git,target /mnt/c      # locates duplicates in /mnt/c
+./scripts/start.sh --consumer=filemanager --file-extensions=tmp,log \
+  --min-size=10MB --exclude=.git,target /mnt/c                             # lists large tmp/log files
+./scripts/start.sh --consumer=filemanager --action=delete \
+  --file-extensions=tmp --exclude=.git,target /mnt/c                       # writes a script to quarantine them
 ./scripts/start.sh --help                                                  # all flags
 ```
 

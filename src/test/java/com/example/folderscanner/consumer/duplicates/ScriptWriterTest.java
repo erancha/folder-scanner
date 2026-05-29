@@ -1,6 +1,5 @@
 package com.example.folderscanner.consumer.duplicates;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,62 +12,14 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for ScriptWriter.shellQuote. The four characters that retain
- * special meaning inside bash double-quotes (\\, ", $, `) must each be
- * backslash-escaped; everything else passes through unchanged. Order
- * matters: backslash must be escaped first so the substitutions added by
- * the later steps are not themselves re-escaped.
+ * Integration tests for ScriptWriter.write — the duplicates-specific framing on top of the shared
+ * {@link com.example.folderscanner.consumer.shell.ShellScript} primitives. Shell-quoting itself is
+ * covered by ShellScriptTest; these assert the two security-critical properties that depend on the
+ * full generated script: the soft-delete bin name is escaped at its interpolation site, and the bin
+ * resolves relative to the script rather than the caller's cwd.
  */
 final class ScriptWriterTest {
 
-    @Test
-    void plain_path_passes_through_unchanged() {
-        assertEquals("/home/user/file.txt",
-                ScriptWriter.shellQuote(Paths.get("/home/user/file.txt")));
-    }
-
-    @Test
-    void path_with_spaces_passes_through_unchanged() {
-        // Spaces are safe inside double quotes; only the four special chars need escaping.
-        assertEquals("/tmp/has space/file.txt",
-                ScriptWriter.shellQuote(Paths.get("/tmp/has space/file.txt")));
-    }
-
-    @Test
-    void double_quote_is_backslash_escaped() {
-        assertEquals("/tmp/a\\\"b",
-                ScriptWriter.shellQuote(Paths.get("/tmp/a\"b")));
-    }
-
-    @Test
-    void dollar_sign_is_backslash_escaped_to_prevent_variable_expansion() {
-        assertEquals("/tmp/\\$HOME/x",
-                ScriptWriter.shellQuote(Paths.get("/tmp/$HOME/x")));
-    }
-
-    @Test
-    void backtick_is_backslash_escaped_to_prevent_command_substitution() {
-        assertEquals("/tmp/\\`rm -rf /\\`",
-                ScriptWriter.shellQuote(Paths.get("/tmp/`rm -rf /`")));
-    }
-
-    @Test
-    void backslash_is_doubled_and_does_not_re_escape_subsequent_substitutions() {
-        // Input: \$ — a literal backslash followed by a dollar sign. The backslash must
-        // become \\ AND the dollar must become \$. Order matters: a buggy implementation
-        // that escaped $ first would re-escape its own added backslash.
-        assertEquals("\\\\\\$", ScriptWriter.shellQuote(Paths.get("\\$")));
-    }
-
-    /**
-     * Pins the second injection site in the soft-delete mv command. The source path is
-     * already escaped via shellQuote, but the bin-name half of "$BIN/<binname>" is
-     * substituted from SoftDeletePathEncoder.encode, which only swaps '/' for '_' and leaves shell
-     * metacharacters intact. A redundant file at /foo/bar";rm -rf $HOME;echo "x would
-     * otherwise emit mv "..." "$BIN/foo_bar";rm -rf $HOME;echo "x" — every char after
-     * the unescaped " is run as shell. The bin name must travel through the same
-     * shellQuote so the double-quoted argument cannot be broken out of.
-     */
     @Test
     void bin_name_is_escaped_inside_BIN_argument_to_prevent_injection() throws IOException {
         Path tmp = Files.createTempDirectory("scriptwriter-injection");

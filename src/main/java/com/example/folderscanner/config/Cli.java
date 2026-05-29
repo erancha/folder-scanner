@@ -19,7 +19,7 @@ import picocli.CommandLine.Parameters;
 @Command(name = "folder-scanner", mixinStandardHelpOptions = true, version = "folder-scanner 1.0",
         sortOptions = false, usageHelpWidth = 100,
         description = "Concurrently scan a directory tree and either aggregate files by "
-                + "extension/size/date or locate duplicate content.")
+                + "extension/size/date, locate duplicate content, or list/delete matching files.")
 public final class Cli {
 
     // Field order is the --help option-list order (sortOptions = false): general knobs, then the
@@ -33,7 +33,8 @@ public final class Cli {
     @Option(names = "--out", paramLabel = "PATH", description = {
             "Mirror output to PATH (omitted = stdout only).",
             "Aggregate: the report; a dir or trailing '/' auto-names aggregator-*.out.",
-            "Duplicates: where to write remove-duplicates.sh."})
+            "Filemanager --action=list: the listing; auto-names file-list-*.out.",
+            "Duplicates / filemanager --action=delete: where to write the .sh."})
     String outPath = "";
 
     @Option(names = "--stats", description = {
@@ -70,7 +71,8 @@ public final class Cli {
     // --- Consumers ---
     @Option(names = "--consumer", paramLabel = "NAME", description = {
             "Consumer pipeline. aggregate (default): by-extension/size/date tables.",
-            "duplicates: emit a script that quarantines or deletes redundant copies."})
+            "duplicates: emit a script that quarantines or deletes redundant copies.",
+            "filemanager: list or delete the files surviving the producer filters."})
     String consumerRaw = "aggregate";
 
     @Option(names = "--consumers", paramLabel = "N", description = {
@@ -78,8 +80,15 @@ public final class Cli {
             "Also sizes the duplicate locator's phase-2 hashing pool."})
     Integer consumers;
 
+    // null = flag absent (so --action with a non-filemanager consumer can be rejected as misuse);
+    // ManageAction.parseOrCollect maps null to the LIST default.
+    @Option(names = "--action", paramLabel = "A", description = {
+            "Filemanager mode. list (default): print path/size/modified per file.",
+            "delete: emit a script that quarantines (or, with --hard-delete, removes) them."})
+    String actionRaw;
+
     @Option(names = "--hard-delete", description = {
-            "Duplicates mode only. Generate rm instead of soft-delete moves.",
+            "Duplicates, or filemanager --action=delete. Generate rm instead of soft-delete moves.",
             "The script still prompts for the literal string DELETE first."})
     boolean hardDelete;
 
@@ -120,8 +129,16 @@ public final class Cli {
 
         QueueType queueType = QueueType.parseOrCollect(queueTypeRaw, errors);
         ConsumerKind consumerKind = ConsumerKind.parseOrCollect(consumerRaw, errors);
-        if (hardDelete && consumerKind != ConsumerKind.DUPLICATES) {
-            errors.add("--hard-delete only applies with --consumer=duplicates");
+        ManageAction action = ManageAction.parseOrCollect(actionRaw, errors);
+
+        if (consumerKind != ConsumerKind.FILEMANAGER && actionRaw != null) {
+            errors.add("--action only applies with --consumer=filemanager");
+        }
+        boolean deletingFiles = consumerKind == ConsumerKind.FILEMANAGER
+                && action == ManageAction.DELETE;
+        if (hardDelete && consumerKind != ConsumerKind.DUPLICATES && !deletingFiles) {
+            errors.add("--hard-delete only applies with --consumer=duplicates or "
+                    + "--consumer=filemanager --action=delete");
         }
 
         long minSizeBytes = 0L;
@@ -145,7 +162,7 @@ public final class Cli {
         }
 
         return new Config(queueSizeV, stats, producersV, consumersV, queueType, consumerKind,
-                outPath, hardDelete, minSizeBytes, excludeDirs, includeExtensions, target);
+                action, outPath, hardDelete, minSizeBytes, excludeDirs, includeExtensions, target);
     }
 
     private static Set<String> parseExcludeDirs(String raw) {

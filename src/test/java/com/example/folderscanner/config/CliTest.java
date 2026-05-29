@@ -43,6 +43,7 @@ final class CliTest {
         assertEquals(Math.max(4, NCPU * 2), cfg.consumers());
         assertEquals(QueueType.ABQ, cfg.queueType());
         assertEquals(ConsumerKind.AGGREGATE, cfg.consumerKind());
+        assertEquals(ManageAction.LIST, cfg.action());
         assertEquals("", cfg.outPath());
         assertFalse(cfg.hardDelete());
         assertEquals(0L, cfg.minSizeBytes());
@@ -177,6 +178,51 @@ final class CliTest {
     }
 
     @Test
+    void action_defaults_to_list_for_filemanager() {
+        Config cfg = parse("--consumer=filemanager");
+        assertEquals(ConsumerKind.FILEMANAGER, cfg.consumerKind());
+        assertEquals(ManageAction.LIST, cfg.action());
+    }
+
+    @Test
+    void action_delete_parses_for_filemanager() {
+        assertEquals(ManageAction.DELETE,
+                parse("--consumer=filemanager", "--action=delete").action());
+    }
+
+    @Test
+    void unknown_action_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=filemanager", "--action=erase"));
+        assertTrue(ex.getMessage().contains("--action"),
+                "expected --action complaint, got: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("erase"));
+    }
+
+    @Test
+    void action_with_a_non_filemanager_consumer_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=aggregate", "--action=list"));
+        assertTrue(ex.getMessage().contains("--action only applies"),
+                "expected --action misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void hard_delete_with_filemanager_delete_is_accepted() {
+        Config cfg = parse("--consumer=filemanager", "--action=delete", "--hard-delete");
+        assertTrue(cfg.hardDelete());
+        assertEquals(ManageAction.DELETE, cfg.action());
+    }
+
+    @Test
+    void hard_delete_with_filemanager_list_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=filemanager", "--hard-delete"));
+        assertTrue(ex.getMessage().contains("--hard-delete"),
+                "expected --hard-delete complaint, got: " + ex.getMessage());
+    }
+
+    @Test
     void semantic_validation_errors_aggregate_in_one_exception() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> parse("--queue-type=nope", "--consumer=nope", "--min-size=ten",
@@ -200,5 +246,8 @@ final class CliTest {
         assertEquals("lbq", QueueType.LBQ.cliName());
         assertEquals("aggregate", ConsumerKind.AGGREGATE.cliName());
         assertEquals("duplicates", ConsumerKind.DUPLICATES.cliName());
+        assertEquals("filemanager", ConsumerKind.FILEMANAGER.cliName());
+        assertEquals("list", ManageAction.LIST.cliName());
+        assertEquals("delete", ManageAction.DELETE.cliName());
     }
 }

@@ -1,4 +1,4 @@
-package com.example.folderscanner.consumer.duplicates;
+package com.example.folderscanner.consumer.shell;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;

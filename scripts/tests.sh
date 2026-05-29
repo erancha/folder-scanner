@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Test runner for the folder-scanner CLI. Dispatches the JUnit unit suite, the bash end-to-end
 # suite, or both. The e2e suite builds a tiny fixture tree under a tmpdir, exercises
-# scripts/start.sh in aggregate and duplicates modes, and asserts on both stdout and the generated
-# remove-duplicates.sh. Three tests pin the exit-code contract end-to-end through start.sh -> jar
-# (unknown flag, missing target dir, --hard-delete without --consumer=duplicates); the underlying
-# validation now lives in Java (picocli + Cli) and is also covered by the JUnit CliTest.
+# scripts/start.sh in aggregate, duplicates, and filemanager modes, and asserts on both stdout and
+# the generated scripts (remove-duplicates.sh, delete-files.sh). Exit-code tests pin the contract
+# end-to-end through start.sh -> jar (unknown flag, missing target dir, --hard-delete misuse); the
+# underlying validation now lives in Java (picocli + Cli) and is also covered by the JUnit CliTest.
 set -uo pipefail
 # This script lives in scripts/; cd to the project root so the JAR path and the
 # ./scripts/start.sh invocations below resolve against the repo layout no matter
@@ -224,6 +224,43 @@ BIN_ROW="$(printf "%s" "$OUT" | grep -E '^\s*bin\b' || true)"
 assert_contains "producer_filter_bin_row_present" "$BIN_ROW" "bin"
 TXT_ROW="$(printf "%s" "$OUT" | grep -E '^\s*txt\b' || true)"
 assert_eq "producer_filter_no_txt_row" "" "$TXT_ROW"
+
+# ---- test 12: filemanager list reports every surviving file -----------------
+# Default EXCLUDE leaves 5 files visible. The listing prints one path/size/modified
+# line per file plus a "Listed N files" summary.
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=filemanager "$FIXTURE" 2>&1)" || true
+assert_contains "filemanager_list_total" "$OUT" "Listed 5 files"
+assert_contains "filemanager_list_shows_a_known_file" "$OUT" "tiny.txt"
+
+# ---- test 13: filemanager delete (soft) writes a quarantine script ----------
+# Every surviving file is a deletion target, so the script holds one active mv per
+# file (5) moving into the trash bin.
+DSCRIPT="$SCRATCH/delete-files.sh"
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=filemanager --action=delete "--out=$DSCRIPT" "$FIXTURE" 2>&1)" || true
+assert_contains "filemanager_delete_headline" "$OUT" "to quarantine"
+if [ -f "$DSCRIPT" ]; then
+    ok "filemanager_delete_script_file_exists"
+    MV_LINES="$(grep -cE '^mv ' "$DSCRIPT" || true)"
+    assert_eq "filemanager_delete_one_mv_per_file" "5" "$MV_LINES"
+    BIN_LINES="$(grep -c '^BIN=' "$DSCRIPT" || true)"
+    assert_eq "filemanager_delete_soft_has_trash_bin" "1" "$BIN_LINES"
+else
+    fail "filemanager_delete_script_file_exists" "expected $DSCRIPT to be written"
+fi
+
+# ---- test 14: filemanager --action=delete --hard-delete is allowed ----------
+# Widened rule: --hard-delete now applies to filemanager delete (exit 0), emitting rm
+# lines and no trash bin.
+HSCRIPT="$SCRATCH/delete-hard.sh"
+./scripts/start.sh "$EXCLUDE" --consumer=filemanager --action=delete --hard-delete "--out=$HSCRIPT" "$FIXTURE" >/dev/null 2>&1
+assert_exit_code "filemanager_hard_delete_allowed_exit_0" "0" "$?"
+if [ -f "$HSCRIPT" ]; then
+    RM_LINES="$(grep -cE '^rm ' "$HSCRIPT" || true)"
+    assert_eq "filemanager_hard_delete_one_rm_per_file" "5" "$RM_LINES"
+    assert_not_contains "filemanager_hard_delete_no_trash_bin" "$(cat "$HSCRIPT")" "BIN="
+else
+    fail "filemanager_hard_delete_script_file_exists" "expected $HSCRIPT to be written"
+fi
 
 echo
 echo "----------------------------------------"

@@ -1,6 +1,7 @@
 package com.example.folderscanner.consumer.duplicates;
 
 import com.example.folderscanner.consumer.FileConsumer;
+import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
 import com.example.folderscanner.data.PoisonPill;

@@ -2,7 +2,7 @@ package com.example.folderscanner.config;
 
 /** Which consumer pipeline runs against the scanned files. */
 public enum ConsumerKind {
-    AGGREGATE, DUPLICATES;
+    AGGREGATE, DUPLICATES, FILEMANAGER;
 
     public String cliName() {
         return name().toLowerCase();
@@ -17,8 +17,10 @@ public enum ConsumerKind {
         switch (raw.trim()) {
         case "aggregate": return AGGREGATE;
         case "duplicates": return DUPLICATES;
+        case "filemanager": return FILEMANAGER;
         default:
-            errors.add("Unknown --consumer: " + raw + " (expected aggregate or duplicates)");
+            errors.add("Unknown --consumer: " + raw
+                    + " (expected aggregate, duplicates or filemanager)");
             return AGGREGATE;
         }
     }

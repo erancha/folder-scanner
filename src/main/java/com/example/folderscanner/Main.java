@@ -3,10 +3,12 @@ package com.example.folderscanner;
 import com.example.folderscanner.config.Cli;
 import com.example.folderscanner.config.Config;
 import com.example.folderscanner.config.ConsumerKind;
+import com.example.folderscanner.config.ManageAction;
 import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.consumer.aggregator.Aggregator;
 import com.example.folderscanner.consumer.duplicates.DuplicateLocator;
-import com.example.folderscanner.consumer.duplicates.OutPathResolver;
+import com.example.folderscanner.consumer.filemanager.FileManager;
+import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
 import com.example.folderscanner.producer.FolderScanner;
@@ -107,11 +109,19 @@ public final class Main {
     }
 
     static void run(Config cfg, Path root) throws Exception {
-        // Aggregate --out tees stdout (the report) to a file. A directory / trailing-slash target
-        // is auto-named; a verbatim path is used as-is. Diagnostics on stderr stay terminal-only.
+        // For the consumers whose primary output is a stdout report (aggregate, and filemanager
+        // --action=list), --out tees that report to a file. A directory / trailing-slash target is
+        // auto-named per consumer; a verbatim path is used as-is. The script-emitting modes
+        // (duplicates, filemanager --action=delete) instead resolve --out as the script path inside
+        // the consumer, so they are excluded here. Diagnostics on stderr stay terminal-only.
+        boolean teesReportToFile = cfg.consumerKind() == ConsumerKind.AGGREGATE
+                || (cfg.consumerKind() == ConsumerKind.FILEMANAGER
+                        && cfg.action() == ManageAction.LIST);
         PrintStream teeFile = null;
-        if (cfg.consumerKind() == ConsumerKind.AGGREGATE && !cfg.outPath().isEmpty()) {
-            String stamp = "aggregator-"
+        if (teesReportToFile && !cfg.outPath().isEmpty()) {
+            String prefix = cfg.consumerKind() == ConsumerKind.AGGREGATE
+                    ? "aggregator-" : "file-list-";
+            String stamp = prefix
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     + ".out";
             Path outFile = OutPathResolver.resolve(cfg.outPath(), stamp);
@@ -134,6 +144,8 @@ public final class Main {
             FileConsumer consumer = switch (cfg.consumerKind()) {
             case AGGREGATE -> new Aggregator(queue, cfg.consumers());
             case DUPLICATES -> new DuplicateLocator(queue, cfg.consumers(), cfg.outPath(),
+                    cfg.hardDelete(), root);
+            case FILEMANAGER -> new FileManager(queue, cfg.consumers(), cfg.outPath(), cfg.action(),
                     cfg.hardDelete(), root);
             };
 

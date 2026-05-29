@@ -3,7 +3,16 @@ package com.example.folderscanner.data;
 /** Dependency-free formatting helpers for byte counts and elapsed durations. */
 public final class Format {
 
+    private static final java.time.format.DateTimeFormatter TIMESTAMP =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     private Format() {}
+
+    /** Epoch-milli as local-zone "yyyy-MM-dd HH:mm:ss" for human-readable file listings. */
+    public static String formatTimestamp(long epochMillis) {
+        return TIMESTAMP.format(java.time.LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(epochMillis), java.time.ZoneId.systemDefault()));
+    }
 
     /** Elapsed-ms as "X.X s", or "X.X s (Y.Y m)" once the value crosses one minute. */
     public static String formatElapsed(long elapsedMs) {
