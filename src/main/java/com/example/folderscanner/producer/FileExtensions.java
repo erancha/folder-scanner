@@ -34,8 +34,8 @@ public final class FileExtensions {
 
     /**
      * Parses --file-extensions into an IncludeSet. "*" anywhere short-circuits to all; null /
-     * blank also means all (so the CLI parser can pass the raw -Dfileextensions value through
-     * without a null guard). Empty tokens are dropped; case + leading dot are normalized.
+     * blank also means all, so a caller can pass the raw flag value straight through without a
+     * null guard. Empty tokens are dropped; case + leading dot are normalized.
      */
     public static IncludeSet parse(String raw) {
         if (raw == null) return IncludeSet.ALL;

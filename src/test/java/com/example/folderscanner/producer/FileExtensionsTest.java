@@ -56,8 +56,8 @@ final class FileExtensionsTest {
 
     @Test
     void parse_null_or_blank_defaults_to_all() {
-        // Unset / blank == default == "all". Lets Main pass System.getProperty("fileextensions", "*")
-        // without an extra null guard.
+        // Unset / blank == default == "all", so a caller can pass the raw flag value straight
+        // through without an extra null guard.
         assertTrue(FileExtensions.parse(null).isAll());
         assertTrue(FileExtensions.parse("").isAll());
         assertTrue(FileExtensions.parse("   ").isAll());
@@ -138,7 +138,7 @@ final class FileExtensionsTest {
 
     @Test
     void displayList_returns_sorted_normalized_tokens() {
-        // Used by Main's "Skipped (extension not in [...])" report. Sorted so the line is
+        // Feeds the end-of-run "Skipped (extension not in [...])" report. Sorted so the line is
         // stable across runs regardless of input order.
         assertEquals("[jpg, pdf, txt]", FileExtensions.parse("PDF,.TXT,jpg").displayList());
         assertEquals("[(none), txt]", FileExtensions.parse("txt,none").displayList());
