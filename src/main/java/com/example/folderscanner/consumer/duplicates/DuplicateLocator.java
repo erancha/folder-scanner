@@ -9,7 +9,9 @@ import com.example.folderscanner.producer.FileInfoFactory;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -215,12 +217,50 @@ public final class DuplicateLocator implements FileConsumer {
             for (List<Path> group : byFull.values()) {
                 if (group.size() < 2)
                     continue;
+                List<Path> distinct = keepOneNamePerInode(group);
+                // A group that collapses to a single inode is just hardlinks with no independent
+                // copy: nothing is reclaimable, so it is not a duplicate set.
+                if (distinct.size() < 2)
+                    continue;
                 // Lexicographic sort so the keeper (index 0 in the script) is deterministic.
-                group.sort(Comparator.comparing(Path::toString));
-                out.add(new DuplicateReport.Group(size, group));
+                distinct.sort(Comparator.comparing(Path::toString));
+                out.add(new DuplicateReport.Group(size, distinct));
             }
         }
         return out;
+    }
+
+    /**
+     * Drops hardlink aliases from a same-content group, keeping one name per physical file.
+     *
+     * Example: a.iso is a real file and b.iso is a hardlink to it, so both names address the same
+     * inode and the same bytes. The input [a.iso, b.iso] returns just [a.iso] — one name per inode
+     * (lexicographically first, for a deterministic keeper). b.iso is dropped because deleting a
+     * hardlink frees no space and removes a path the user may rely on.
+     *
+     * An independent copy lives on its own inode and is kept as a genuine duplicate. A path whose
+     * filesystem reports no fileKey is keyed by itself, so distinct names never collapse together.
+     */
+    private static List<Path> keepOneNamePerInode(List<Path> sameContent) {
+        // Key: inode identity (fileKey), or the path itself when no fileKey is available.
+        // Value: the lexicographically first name seen for that inode.
+        Map<Object, Path> keptNameByInode = new HashMap<>();
+        for (Path p : sameContent) {
+            keptNameByInode.merge(inodeKey(p), p,
+                    (kept, other) -> kept.toString().compareTo(other.toString()) <= 0 ? kept : other);
+        }
+        return new ArrayList<>(keptNameByInode.values());
+    }
+
+    private static Object inodeKey(Path p) {
+        try {
+            Object key = Files.readAttributes(p, BasicFileAttributes.class).fileKey();
+            if (key != null)
+                return key;
+        } catch (IOException e) {
+            LOGGER.debug("inode lookup failed, treating as distinct: {} — {}", p, e.getMessage());
+        }
+        return p;
     }
 
     @Override

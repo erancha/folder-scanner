@@ -127,6 +127,42 @@ final class DuplicateLocatorTest {
         assertEquals(List.of(a, b), groups.get(0).paths());
     }
 
+    @Test
+    void confirmGroup_collapses_hardlinks_to_a_single_representative() throws IOException {
+        // a.bin and b.bin are two names for the same inode; c.bin is an independent copy with
+        // identical bytes. Only c.bin is a true redundant copy — deleting a hardlink frees no
+        // space and removes a path the user may depend on, so at most one of {a,b} may appear.
+        byte[] content = "shared inode payload".getBytes();
+        Path a = write("a.bin", content);
+        Path b = dir.resolve("b.bin");
+        Files.createLink(b, a);
+        Path c = write("c.bin", content.clone());
+
+        List<DuplicateReport.Group> groups =
+                locator().confirmGroup(content.length, List.of(a, b, c));
+
+        assertEquals(1, groups.size());
+        assertEquals(List.of(a, c), groups.get(0).paths(),
+                "hardlinks to one inode collapse to the lexicographically-first name; the "
+                        + "independent copy stays as the only redundant target");
+    }
+
+    @Test
+    void confirmGroup_treats_a_pure_hardlink_pair_as_not_redundant() throws IOException {
+        // Two names for one inode: identical size and content, but deleting either frees nothing.
+        // With no independent copy, there is no recoverable space, so no group is proposed.
+        byte[] content = "only hardlinks here".getBytes();
+        Path a = write("a.bin", content);
+        Path b = dir.resolve("b.bin");
+        Files.createLink(b, a);
+
+        List<DuplicateReport.Group> groups =
+                locator().confirmGroup(content.length, List.of(a, b));
+
+        assertTrue(groups.isEmpty(),
+                "a hardlink pair shares an inode, so neither name is a reclaimable duplicate");
+    }
+
     private DuplicateLocator locator() {
         // confirmGroup reads no mutable instance state, so a minimally-wired instance suffices.
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(1);
