@@ -1,6 +1,6 @@
 # folder-scanner
 
-Walks a directory tree in parallel and feeds every file to a pluggable consumer.
+A CLI utility that walks a directory tree in parallel and feeds every file to a pluggable consumer.
 The producer (scanner) and the consumer run on separate thread pools
 connected by a bounded queue — when the queue fills, the producer blocks, so
 heap stays flat regardless of tree size. Two consumers are currently available:
@@ -53,5 +53,5 @@ AmazonQ,puppeteer,.nuget" \
 
 `scripts/start.sh --help` lists every flag. The producer pool defaults higher than the consumer pool because
 directory walking is IO-bound — extra producer threads stay productive while others wait on the disk.
-To retune for a specific tree, run `./scripts/start.sh --combinations` (or `--combinations-q` to sweep queue
+To retune for a specific tree, run `./scripts/benchmarks.sh --combinations` (or `--combinations-q` to sweep queue
 implementations too) — it walks a grid of producer/consumer/queue configurations and prints throughput for each.

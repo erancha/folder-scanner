@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
-# End-to-end tests for the folder-scanner CLI. Builds a tiny fixture tree under a
-# tmpdir, exercises scripts/start.sh in aggregate and duplicates modes, and asserts on
-# both stdout and the generated remove-duplicates.sh. Three additional tests
-# pin the scripts/start.sh error-path branches (unknown flag, missing target dir,
-# --hard-delete without --consumer=duplicates) that the JUnit suite cannot
-# reach because they live in the bash dispatcher, not in Java.
-#
-# Run directly (./scripts/e2e-test.sh) or via ./scripts/start.sh --test=e2e (which
-# fails fast if the jar is missing). Sequential; no parallelism by design - seven
-# tests at ~3 s each finish in well under a minute.
+# Test runner for the folder-scanner CLI. Dispatches the JUnit unit suite, the bash end-to-end
+# suite, or both. The e2e suite builds a tiny fixture tree under a tmpdir, exercises
+# scripts/start.sh in aggregate and duplicates modes, and asserts on both stdout and the generated
+# remove-duplicates.sh. Three tests pin the exit-code contract end-to-end through start.sh -> jar
+# (unknown flag, missing target dir, --hard-delete without --consumer=duplicates); the underlying
+# validation now lives in Java (picocli + Cli) and is also covered by the JUnit CliTest.
 set -uo pipefail
 # This script lives in scripts/; cd to the project root so the JAR path and the
 # ./scripts/start.sh invocations below resolve against the repo layout no matter
@@ -17,6 +13,37 @@ cd "$(dirname "$0")/.."
 HERE="$(pwd)"
 JAR="$HERE/target/folder-scanner-1.0-SNAPSHOT.jar"
 
+usage() {
+    cat <<EOF
+Usage: ./scripts/tests.sh [--unit | --e2e | --all]
+
+  --unit   Run the JUnit unit suite only (no jar needed).
+  --e2e    Run the bash end-to-end suite only. Requires the jar; build it with
+           ./scripts/start.sh --build (this runner does NOT rebuild it).
+  --all    Unit suite then e2e suite (default).
+
+Sequential; no parallelism by design.
+EOF
+}
+
+MODE="all"
+for arg in "$@"; do
+    case "$arg" in
+        --unit) MODE="unit" ;;
+        --e2e)  MODE="e2e" ;;
+        --all)  MODE="all" ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $arg (see ./scripts/tests.sh --help)" >&2; exit 2 ;;
+    esac
+done
+
+# Unit phase (JUnit, no jar needed). A failure here aborts before the slower e2e suite runs.
+if [ "$MODE" = "unit" ] || [ "$MODE" = "all" ]; then
+    mvn test || exit $?
+    [ "$MODE" = "unit" ] && exit 0
+fi
+
+# E2E phase (jar required). Does NOT rebuild; pair with ./scripts/start.sh --build.
 if [ ! -f "$JAR" ]; then
     echo "Jar not found: $JAR" >&2
     echo "Build it first:  ./scripts/start.sh --build" >&2

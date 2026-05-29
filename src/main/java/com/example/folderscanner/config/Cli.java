@@ -1,0 +1,160 @@
+package com.example.folderscanner.config;
+
+import com.example.folderscanner.data.Format;
+import com.example.folderscanner.producer.FileExtensions;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
+
+/**
+ * Single owner of the user-facing CLI surface: the {@code --flag} names, their help text, and the
+ * scan target. picocli converts argument syntax (types, arity, unknown flags); {@link #toConfig}
+ * applies the semantic rules and aggregates their failures into one message. The launcher scripts
+ * forward args verbatim and hold no flag knowledge, so this class is the single source of truth.
+ */
+@Command(name = "folder-scanner", mixinStandardHelpOptions = true, version = "folder-scanner 1.0",
+        sortOptions = false, usageHelpWidth = 100,
+        description = "Concurrently scan a directory tree and either aggregate files by "
+                + "extension/size/date or locate duplicate content.")
+public final class Cli {
+
+    // Field order is the --help option-list order (sortOptions = false): general knobs, then the
+    // producer stage and the filters it applies, then the consumer stage, then the queue between
+    // them. Keep new options inside the matching group rather than appending at the end.
+
+    // Each description element is one clause sized to fit the help's description column at width
+    // 100, so picocli breaks between clauses rather than mid-sentence.
+
+    // --- General ---
+    @Option(names = "--out", paramLabel = "PATH", description = {
+            "Mirror output to PATH (omitted = stdout only).",
+            "Aggregate: the report; a dir or trailing '/' auto-names aggregator-*.out.",
+            "Duplicates: where to write remove-duplicates.sh."})
+    String outPath = "";
+
+    @Option(names = "--stats", description = {
+            "Per-second thread, heap, and queue-depth snapshot during the scan."})
+    boolean stats;
+
+    @Option(names = "--log-level", paramLabel = "L", description = {
+            "Logback root level (default INFO).",
+            "DEBUG surfaces scanner/locator skip diagnostics."})
+    String logLevel = "INFO";
+
+    // --- Producers (folder walkers) and the filtering they apply before the queue ---
+    @Option(names = "--producers", paramLabel = "N", description = {
+            "Scanner (folder-walker) threads. Default max(8, NCPU*4).",
+            "Directory walking is IO-bound, so over-subscribing CPUs is intentional."})
+    Integer producers;
+
+    @Option(names = "--min-size", paramLabel = "SIZE", description = {
+            "Skip files smaller than SIZE at the producer (applies to all consumers).",
+            "1024-based: raw bytes or NB/NKB/NMB/NGB/NTB (e.g. 1MB, 512KB). Default 0."})
+    String minSizeRaw = "0";
+
+    @Option(names = "--file-extensions", paramLabel = "LIST", description = {
+            "Comma-separated extensions to include; others are skipped at the producer.",
+            "Case-insensitive, leading dot optional. 'none' = extension-less files.",
+            "Default * (no filter)."})
+    String fileExtRaw = "*";
+
+    @Option(names = "--exclude", paramLabel = "LIST", description = {
+            "Comma-separated directory basenames to skip, plus the always-skipped .git.",
+            "Quote the whole flag for names with spaces. Required (default .git)."})
+    String excludeRaw = ".git";
+
+    // --- Consumers ---
+    @Option(names = "--consumer", paramLabel = "NAME", description = {
+            "Consumer pipeline. aggregate (default): by-extension/size/date tables.",
+            "duplicates: emit a script that quarantines or deletes redundant copies."})
+    String consumerRaw = "aggregate";
+
+    @Option(names = "--consumers", paramLabel = "N", description = {
+            "Consumer drainer threads. Default max(4, NCPU*2).",
+            "Also sizes the duplicate locator's phase-2 hashing pool."})
+    Integer consumers;
+
+    @Option(names = "--hard-delete", description = {
+            "Duplicates mode only. Generate rm instead of soft-delete moves.",
+            "The script still prompts for the literal string DELETE first."})
+    boolean hardDelete;
+
+    // --- Bounded queue between producers and consumers ---
+    @Option(names = "--queue-type", paramLabel = "T", description = {
+            "Bounded-queue impl (default abq).",
+            "abq = ArrayBlockingQueue: one lock, no per-put allocation.",
+            "lbq = LinkedBlockingQueue: split put/take locks, per-put allocation."})
+    String queueTypeRaw = "abq";
+
+    @Option(names = "--queue-size", paramLabel = "N", description = {
+            "Bounded queue capacity (default 4096).",
+            "Larger lets the producer run further ahead before backpressure."})
+    Integer queueSize;
+
+    @Parameters(arity = "0..1", paramLabel = "PATH",
+            description = "Directory to scan (default: current directory).")
+    String target = ".";
+
+    /** Logback root level requested via {@code --log-level}, defaulting to INFO. */
+    public String logLevel() {
+        return logLevel;
+    }
+
+    /**
+     * Builds the validated {@link Config}. {@code ncpu} is a parameter (not read from the runtime)
+     * so the same NCPU-scaled defaults can be reproduced on a different host. Every semantic
+     * failure is collected so the user sees all mistakes from one run rather than one at a time.
+     */
+    public Config toConfig(int ncpu) {
+        List<String> errors = new ArrayList<>();
+
+        int queueSizeV = queueSize != null ? queueSize : 4096;
+        int producersV = producers != null ? producers : Math.max(8, ncpu * 4);
+        int consumersV = consumers != null ? consumers : Math.max(4, ncpu * 2);
+        if (producersV < 1) errors.add("producers must be >= 1");
+        if (consumersV < 1) errors.add("consumers must be >= 1");
+
+        QueueType queueType = QueueType.parseOrCollect(queueTypeRaw, errors);
+        ConsumerKind consumerKind = ConsumerKind.parseOrCollect(consumerRaw, errors);
+        if (hardDelete && consumerKind != ConsumerKind.DUPLICATES) {
+            errors.add("--hard-delete only applies with --consumer=duplicates");
+        }
+
+        long minSizeBytes = 0L;
+        try {
+            minSizeBytes = Format.parseSize(minSizeRaw);
+        } catch (IllegalArgumentException e) {
+            errors.add("Invalid --min-size: " + e.getMessage());
+        }
+
+        FileExtensions.IncludeSet includeExtensions = FileExtensions.parse(fileExtRaw);
+
+        Set<String> excludeDirs = parseExcludeDirs(excludeRaw);
+        if (excludeDirs.isEmpty()) {
+            errors.add("--exclude is required: pass a comma-separated list of directory basenames "
+                    + "to skip (e.g. --exclude=.git,node_modules,target). "
+                    + "See README for recommended lists.");
+        }
+
+        if (!errors.isEmpty()) {
+            throw new IllegalArgumentException(String.join("\n", errors));
+        }
+
+        return new Config(queueSizeV, stats, producersV, consumersV, queueType, consumerKind,
+                outPath, hardDelete, minSizeBytes, excludeDirs, includeExtensions, target);
+    }
+
+    private static Set<String> parseExcludeDirs(String raw) {
+        Set<String> out = new LinkedHashSet<>();
+        if (raw == null) return out;
+        for (String token : raw.split(",")) {
+            String name = token.trim();
+            if (!name.isEmpty()) out.add(name);
+        }
+        return out;
+    }
+}
