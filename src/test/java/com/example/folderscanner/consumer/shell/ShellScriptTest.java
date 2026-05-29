@@ -9,6 +9,7 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -95,6 +96,46 @@ final class ShellScriptTest {
 
         assertEquals(0, exit, "rm line should run cleanly as a single command");
         assertFalse(Files.exists(victim), "the one newline-named file should be deleted");
+    }
+
+    @Test
+    void staleness_guard_embeds_creation_epoch_and_ten_minute_threshold() {
+        StringWriter sw = new StringWriter();
+        ShellScript.writeStalenessGuard(new PrintWriter(sw), 1_700_000_000L);
+        String out = sw.toString();
+        assertTrue(out.contains("CREATED=1700000000"), out);
+        assertTrue(out.contains("-gt 10"), out);
+        assertTrue(out.contains("$ELAPSED_MIN minutes"), out);
+    }
+
+    @Test
+    void staleness_guard_warns_with_elapsed_minutes_when_run_long_after_creation() throws Exception {
+        Assumptions.assumeTrue(Files.isExecutable(Paths.get("/bin/bash")), "bash required");
+        long twentyMinutesAgo = Instant.now().getEpochSecond() - 20 * 60;
+        StringWriter sw = new StringWriter();
+        ShellScript.writeStalenessGuard(new PrintWriter(sw), twentyMinutesAgo);
+
+        Process p = new ProcessBuilder("/bin/bash", "-c", sw.toString())
+                .redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes());
+        p.waitFor();
+
+        assertTrue(output.contains("WARNING"), output);
+        assertTrue(output.contains("20 minutes"), output);
+    }
+
+    @Test
+    void staleness_guard_is_silent_when_run_immediately_after_creation() throws Exception {
+        Assumptions.assumeTrue(Files.isExecutable(Paths.get("/bin/bash")), "bash required");
+        StringWriter sw = new StringWriter();
+        ShellScript.writeStalenessGuard(new PrintWriter(sw), Instant.now().getEpochSecond());
+
+        Process p = new ProcessBuilder("/bin/bash", "-c", sw.toString())
+                .redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes());
+        p.waitFor();
+
+        assertTrue(output.isEmpty(), "expected no warning for a fresh script, got: " + output);
     }
 
     @Test

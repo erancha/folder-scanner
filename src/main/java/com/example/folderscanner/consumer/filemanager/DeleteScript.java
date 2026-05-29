@@ -16,8 +16,9 @@ import java.util.Map;
  * Writes the filemanager deletion script: a flat list of files to quarantine or remove.
  *
  * Unlike the duplicates script there are no groups and no keeper — every matched file is a
- * deletion target. The shebang, trash-bin setup, confirm banner, per-file line, and shell quoting
- * are delegated to {@link ShellScript}; this class owns only the filemanager header frame.
+ * deletion target. The shebang, staleness guard, trash-bin setup, confirm banner, per-file line,
+ * and shell quoting are delegated to {@link ShellScript}; this class owns only the filemanager
+ * header frame.
  */
 public final class DeleteScript {
 
@@ -34,6 +35,7 @@ public final class DeleteScript {
         try (PrintWriter w = new PrintWriter(
                 Files.newBufferedWriter(scriptPath, StandardCharsets.UTF_8))) {
             ShellScript.writeShebang(w);
+            ShellScript.writeStalenessGuard(w, java.time.Instant.now().getEpochSecond());
             writeHeader(w, sourceTree, paths.size(), totalBytes, hardDelete);
             if (!hardDelete) ShellScript.writeBinDeclaration(w);
             ShellScript.writeConfirmBanner(w, paths.size(), totalBytes, hardDelete);

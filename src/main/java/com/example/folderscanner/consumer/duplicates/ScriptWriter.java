@@ -20,9 +20,9 @@ import com.example.folderscanner.data.Format;
  * The first path of each group is emitted as a commented-out "# KEPT" line so the user can
  * pick a different keeper before running. The active commands operate on the rest.
  *
- * The shebang, trash-bin setup, confirm banner, per-file delete line, and shell quoting are
- * delegated to {@link ShellScript}; this class owns only the duplicates-specific header (phase
- * timings) and the per-group framing.
+ * The shebang, staleness guard, trash-bin setup, confirm banner, per-file delete line, and shell
+ * quoting are delegated to {@link ShellScript}; this class owns only the duplicates-specific header
+ * (phase timings) and the per-group framing.
  */
 public final class ScriptWriter {
 
@@ -43,6 +43,7 @@ public final class ScriptWriter {
         try (PrintWriter w = new PrintWriter(
                 Files.newBufferedWriter(scriptPath, StandardCharsets.UTF_8))) {
             ShellScript.writeShebang(w);
+            ShellScript.writeStalenessGuard(w, java.time.Instant.now().getEpochSecond());
             writeHeader(w, sourceTree, report, hardDelete);
             if (!hardDelete) ShellScript.writeBinDeclaration(w);
             ShellScript.writeConfirmBanner(w, report.redundantFileCount(), report.redundantBytes(),

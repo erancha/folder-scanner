@@ -62,4 +62,19 @@ final class ScriptWriterTest {
                 "BIN must resolve via $(dirname \"$0\") so the script works from any cwd; was: "
                         + binLine);
     }
+
+    @Test
+    void embeds_staleness_guard_so_a_late_run_warns() throws IOException {
+        Path tmp = Files.createTempDirectory("scriptwriter-staleness");
+        Path scriptPath = tmp.resolve("remove.sh");
+        DuplicateReport report = new DuplicateReport(
+                List.of(new DuplicateReport.Group(100L,
+                        List.of(Paths.get("/a.txt"), Paths.get("/b.txt")))),
+                1L, 1L, 100L, 0L, 0L);
+
+        ScriptWriter.write(scriptPath, tmp, report, false);
+
+        assertTrue(Files.readAllLines(scriptPath).stream().anyMatch(l -> l.startsWith("CREATED=")),
+                "generated script must embed a creation timestamp for the run-time staleness guard");
+    }
 }

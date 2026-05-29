@@ -124,6 +124,14 @@ final class FileManagerTest {
         assertFalse(Files.exists(script), "no script should be written when nothing matched");
     }
 
+    @Test
+    void delete_script_embeds_staleness_guard_for_a_late_run() throws Exception {
+        Path script = dir.resolve("delete-files.sh");
+        DeleteScript.write(script, dir, List.of(Paths.get("/data/a.tmp")), 10L, true);
+        assertTrue(Files.readAllLines(script).stream().anyMatch(l -> l.startsWith("CREATED=")),
+                "filemanager delete script must embed a creation timestamp for the staleness guard");
+    }
+
     private static String run(FileManager fm) throws InterruptedException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         fm.start();

@@ -6,8 +6,9 @@ import java.nio.file.Path;
 
 /**
  * Body-agnostic primitives shared by every consumer that emits a destructive shell script
- * (duplicates removal, filemanager deletion): the shebang preamble, the soft-delete trash bin
- * setup, the type-to-confirm safety banner, the per-file delete line, and shell quoting.
+ * (duplicates removal, filemanager deletion): the shebang preamble, the run-time staleness guard,
+ * the soft-delete trash bin setup, the type-to-confirm safety banner, the per-file delete line, and
+ * shell quoting.
  *
  * Each consumer composes these around its own header frame and file-listing body; nothing here
  * knows whether the files came from a duplicate group or a flat match list. Filenames in the
@@ -21,6 +22,27 @@ public final class ShellScript {
     public static void writeShebang(PrintWriter w) {
         w.println("#!/usr/bin/env bash");
         w.println("set -euo pipefail");
+        w.println();
+    }
+
+    /**
+     * Emits a runtime staleness check that warns when the script runs more than ten minutes after
+     * it was generated. Targets are chosen (and, for duplicates, content-hashed) at scan time but
+     * the {@code rm}/{@code mv} runs only when the user later executes the script; a tree mutated in
+     * that window can leave the baked-in paths pointing at different bytes. The warning surfaces the
+     * elapsed minutes so the user can re-scan rather than acting on a stale plan. It does not abort:
+     * the gap is advisory, and the type-to-confirm banner remains the hard stop.
+     *
+     * @param createdEpochSeconds generation time as Unix epoch seconds, compared against the
+     *     executing shell's {@code date +%s}
+     */
+    public static void writeStalenessGuard(PrintWriter w, long createdEpochSeconds) {
+        w.printf("CREATED=%d%n", createdEpochSeconds);
+        w.println("ELAPSED_MIN=$(( ( $(date +%s) - CREATED ) / 60 ))");
+        w.println("if [ \"$ELAPSED_MIN\" -gt 10 ]; then");
+        w.println("  echo \"WARNING: this script was generated $ELAPSED_MIN minutes ago; the scanned"
+                + " tree may have changed since — re-scan if unsure.\" >&2");
+        w.println("fi");
         w.println();
     }
 

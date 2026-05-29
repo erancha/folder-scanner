@@ -62,3 +62,18 @@ AmazonQ,puppeteer,.nuget" \
 directory walking is IO-bound — extra producer threads stay productive while others wait on the disk.
 To retune for a specific tree, run `./scripts/benchmarks.sh --combinations` (or `--combinations-q` to sweep queue
 implementations too) — it walks a grid of producer/consumer/queue configurations and prints throughput for each.
+
+## Deletion safety
+
+Deletion is two-phase: the scan decides which files to remove and bakes their paths into the generated script,
+but the actual `rm`/`mv` runs only when **you** execute that script later. The script does not re-hash or re-check
+size/mtime at run time, so there is a time-of-check/time-of-use (TOCTOU) gap: if the tree changes between scan and
+execution — a kept file edited, a path recreated with different content — the script can delete bytes that no
+longer match what the scan saw.
+
+This is bounded, not eliminated, by design. Every generated script embeds its creation time and re-checks it at
+run time: if more than ten minutes have passed, it prints the elapsed minutes as a warning before prompting, so a
+forgotten script run hours later is hard to miss. On top of that, inspect the script before running it, the
+hard-delete path requires typing `DELETE` in capitals to proceed, and each duplicate group leaves the survivor as
+a commented `# KEPT` line so you can confirm the keeper. To keep the window small, run a generated script promptly
+and avoid mutating the scanned tree in between.
