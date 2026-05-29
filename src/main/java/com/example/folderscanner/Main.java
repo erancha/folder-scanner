@@ -2,29 +2,18 @@ package com.example.folderscanner;
 
 import com.example.folderscanner.config.Cli;
 import com.example.folderscanner.config.Config;
-import com.example.folderscanner.config.ConsumerKind;
-import com.example.folderscanner.config.ManageAction;
 import com.example.folderscanner.consumer.FileConsumer;
 import com.example.folderscanner.consumer.aggregator.Aggregator;
 import com.example.folderscanner.consumer.duplicates.DuplicateLocator;
 import com.example.folderscanner.consumer.filemanager.FileManager;
-import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.FileInfo;
-import com.example.folderscanner.data.Format;
 import com.example.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
-import java.io.BufferedOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -38,8 +27,9 @@ import picocli.CommandLine.ParameterException;
 
 /**
  * Composition root. Drives the picocli {@link Cli} to obtain a validated {@link Config}, then wires
- * the producer (FolderScanner), the consumer (Aggregator or DuplicateLocator), and the bounded
- * queue between them. All CLI string handling lives in Cli so this class only orchestrates the run.
+ * the producer (FolderScanner), the consumer (Aggregator, DuplicateLocator, or FileManager), and
+ * the bounded queue between them. CLI string handling lives in Cli, report formatting in
+ * ReportPrinter, and the --out tee in ReportTee, so this class only orchestrates the run.
  */
 public final class Main {
 
@@ -109,119 +99,94 @@ public final class Main {
     }
 
     static void run(Config cfg, Path root) throws Exception {
-        // For the consumers whose primary output is a stdout report (aggregate, and filemanager
-        // --action=list), --out tees that report to a file. A directory / trailing-slash target is
-        // auto-named per consumer; a verbatim path is used as-is. The script-emitting modes
-        // (duplicates, filemanager --action=delete) instead resolve --out as the script path inside
-        // the consumer, so they are excluded here. Diagnostics on stderr stay terminal-only.
-        boolean teesReportToFile = cfg.consumerKind() == ConsumerKind.AGGREGATE
-                || (cfg.consumerKind() == ConsumerKind.FILEMANAGER
-                        && cfg.action() == ManageAction.LIST);
-        PrintStream teeFile = null;
-        if (teesReportToFile && !cfg.outPath().isEmpty()) {
-            String prefix = cfg.consumerKind() == ConsumerKind.AGGREGATE
-                    ? "aggregator-" : "file-list-";
-            String stamp = prefix
-                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-                    + ".out";
-            Path outFile = OutPathResolver.resolve(cfg.outPath(), stamp);
-            teeFile = new PrintStream(new BufferedOutputStream(Files.newOutputStream(outFile)),
-                    false, StandardCharsets.UTF_8);
-            System.setOut(new PrintStream(new TeeOutputStream(System.out, teeFile), true,
-                    StandardCharsets.UTF_8));
-        }
-
-        try {
-            // ABQ: one shared lock, no per-put allocation — pick when consumer work per item is
-            // heavy so the queue rarely runs hot (e.g. DuplicateLocator hashing files).
-            // LBQ: split put/take locks, one allocation per put — pick when both sides run hot
-            // enough for single-lock contention to bite (e.g. Aggregator on a warm-cache tree).
-            BlockingQueue<FileInfo> queue = switch (cfg.queueType()) {
-            case LBQ -> new LinkedBlockingQueue<>(cfg.queueSize());
-            case ABQ -> new ArrayBlockingQueue<>(cfg.queueSize());
-            };
-
-            FileConsumer consumer = switch (cfg.consumerKind()) {
-            case AGGREGATE -> new Aggregator(queue, cfg.consumers());
-            case DUPLICATES -> new DuplicateLocator(queue, cfg.consumers(), cfg.outPath(),
-                    cfg.hardDelete(), root);
-            case FILEMANAGER -> new FileManager(queue, cfg.consumers(), cfg.outPath(), cfg.action(),
-                    cfg.hardDelete(), root);
-            };
-
+        try (ReportTee tee = ReportTee.install(cfg)) {
+            BlockingQueue<FileInfo> queue = createQueue(cfg);
+            FileConsumer consumer = createConsumer(cfg, queue, root);
             FolderScanner scanner = new FolderScanner(queue, cfg.producers(), consumer.factory(),
                     cfg.excludeDirs(), cfg.includeExtensions(), cfg.minSizeBytes());
 
-            System.out.printf(
-                    "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n",
-                    root, cfg.producers(), cfg.consumerKind().cliName(), cfg.consumers(),
-                    cfg.queueType().cliName(), cfg.queueSize());
-            System.out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
+            printScanHeader(cfg, root);
 
             long t0 = System.nanoTime();
             long cpu0 = OS_MX.getProcessCpuTime();
             consumer.start();
-
-            // Under --stats, prints a live queue-depth/heap/thread snapshot every second so the
-            // user can watch backpressure as the scan runs. Needs its own thread because main
-            // is about to block in scanner.scan(). Daemon so it can't keep the JVM alive on its
-            // own.
-            ScheduledExecutorService statsTimer = null;
-            if (cfg.statsEnabled()) {
-                statsTimer = Executors.newSingleThreadScheduledExecutor(r -> {
-                    Thread t = new Thread(r, "stat-reporter");
-                    t.setDaemon(true);
-                    return t;
-                });
-                statsTimer.scheduleAtFixedRate(() -> printStats(queue, t0, cfg.queueSize()), 1, 1,
-                        TimeUnit.SECONDS);
-            }
-
-            try {
-                scanner.scan(root);
-                for (int i = 0; i < consumer.drainerCount(); i++) {
-                    queue.put(FileInfo.POISON);
-                }
-            } finally {
-                scanner.shutdown();
-                if (statsTimer != null)
-                    statsTimer.shutdown();
-            }
-
+            executeScan(scanner, consumer, queue, cfg, root, t0);
             consumer.awaitAndReport(System.out);
 
-            if (cfg.minSizeBytes() > 0) {
-                System.out.printf("%nSkipped (size < %s): %,d files (%s).%n",
-                        Format.humanBytes(cfg.minSizeBytes()), scanner.filteredBySizeCount(),
-                        Format.humanBytes(scanner.filteredBySizeBytes()));
-            }
-            if (!cfg.includeExtensions().isAll()) {
-                System.out.printf("%nSkipped (extension not in %s): %,d files (%s).%n",
-                        cfg.includeExtensions().displayList(), scanner.filteredByExtensionCount(),
-                        Format.humanBytes(scanner.filteredByExtensionBytes()));
-            }
-            long inaccessibleDirs = scanner.inaccessibleDirCount();
-            long inaccessibleFiles = scanner.inaccessibleFileCount();
-            if (inaccessibleDirs > 0 || inaccessibleFiles > 0) {
-                System.out.printf(
-                        "%nInaccessible (permission denied or IO error): %,d directories, %,d files "
-                                + "— their contents are absent from this report.%n",
-                        inaccessibleDirs, inaccessibleFiles);
-            }
+            ReportPrinter.printFilterSummary(System.out, new ReportPrinter.FilterTally(
+                    cfg.minSizeBytes(), scanner.filteredBySizeCount(), scanner.filteredBySizeBytes(),
+                    cfg.includeExtensions(), scanner.filteredByExtensionCount(),
+                    scanner.filteredByExtensionBytes(), scanner.inaccessibleDirCount(),
+                    scanner.inaccessibleFileCount()));
 
             long elapsedNs = System.nanoTime() - t0;
-            long elapsedMs = elapsedNs / 1_000_000;
-            System.out.printf("%nDone in %s. Files=%,d  TotalBytes=%s%n",
-                    Format.formatElapsed(elapsedMs), consumer.totalFilesSeen(),
-                    Format.humanBytes(consumer.totalBytesSeen()));
+            ReportPrinter.printDone(System.out, elapsedNs / 1_000_000, consumer.totalFilesSeen(),
+                    consumer.totalBytesSeen());
             printRunSummary(elapsedNs, cpu0);
+            
             if (cfg.statsEnabled())
                 printStats(queue, t0, cfg.queueSize());
-        } finally {
-            if (teeFile != null) {
-                System.out.flush();
-                teeFile.close();
+        }
+    }
+
+    /**
+     * ABQ: one shared lock, no per-put allocation — pick when consumer work per item is heavy so
+     * the queue rarely runs hot (e.g. DuplicateLocator hashing files). LBQ: split put/take locks,
+     * one allocation per put — pick when both sides run hot enough for single-lock contention to
+     * bite (e.g. Aggregator on a warm-cache tree).
+     */
+    private static BlockingQueue<FileInfo> createQueue(Config cfg) {
+        return switch (cfg.queueType()) {
+        case LBQ -> new LinkedBlockingQueue<>(cfg.queueSize());
+        case ABQ -> new ArrayBlockingQueue<>(cfg.queueSize());
+        };
+    }
+
+    private static FileConsumer createConsumer(Config cfg, BlockingQueue<FileInfo> queue, Path root) {
+        return switch (cfg.consumerKind()) {
+        case AGGREGATE -> new Aggregator(queue, cfg.consumers());
+        case DUPLICATES -> new DuplicateLocator(queue, cfg.consumers(), cfg.outPath(),
+                cfg.hardDelete(), root);
+        case FILEMANAGER -> new FileManager(queue, cfg.consumers(), cfg.outPath(), cfg.action(),
+                cfg.hardDelete(), root);
+        };
+    }
+
+    private static void printScanHeader(Config cfg, Path root) {
+        System.out.printf(
+                "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n",
+                root, cfg.producers(), cfg.consumerKind().cliName(), cfg.consumers(),
+                cfg.queueType().cliName(), cfg.queueSize());
+        System.out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
+    }
+
+    /**
+     * Runs the producer to completion, then feeds one poison pill per drainer so consumers stop.
+     * Under --stats a daemon timer prints a live queue-depth/heap/thread snapshot every second
+     * while the main thread is blocked in {@code scanner.scan()}.
+     */
+    private static void executeScan(FolderScanner scanner, FileConsumer consumer,
+            BlockingQueue<FileInfo> queue, Config cfg, Path root, long t0)
+            throws InterruptedException {
+        ScheduledExecutorService statsTimer = null;
+        if (cfg.statsEnabled()) {
+            statsTimer = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "stat-reporter");
+                t.setDaemon(true);
+                return t;
+            });
+            statsTimer.scheduleAtFixedRate(() -> printStats(queue, t0, cfg.queueSize()), 1, 1,
+                    TimeUnit.SECONDS);
+        }
+        try {
+            scanner.scan(root);
+            for (int i = 0; i < consumer.drainerCount(); i++) {
+                queue.put(FileInfo.POISON);
             }
+        } finally {
+            scanner.shutdown();
+            if (statsTimer != null)
+                statsTimer.shutdown();
         }
     }
 
@@ -251,34 +216,5 @@ public final class Main {
         long maxMb = rt.maxMemory() / (1024 * 1024);
         System.out.printf("[stat T+%3ds] threads=%d/%d  heapUsed=%dMB heapMax=%dMB  queue=%d/%d%n",
                 elapsedS, threads, peak, usedMb, maxMb, queue.size(), queueCapacity);
-    }
-
-    /** Fans each byte to two streams so aggregate {@code --out} can mirror stdout to a file. */
-    private static final class TeeOutputStream extends OutputStream {
-        private final OutputStream a;
-        private final OutputStream b;
-
-        TeeOutputStream(OutputStream a, OutputStream b) {
-            this.a = a;
-            this.b = b;
-        }
-
-        @Override
-        public void write(int x) throws IOException {
-            a.write(x);
-            b.write(x);
-        }
-
-        @Override
-        public void write(byte[] buf, int off, int len) throws IOException {
-            a.write(buf, off, len);
-            b.write(buf, off, len);
-        }
-
-        @Override
-        public void flush() throws IOException {
-            a.flush();
-            b.flush();
-        }
     }
 }
