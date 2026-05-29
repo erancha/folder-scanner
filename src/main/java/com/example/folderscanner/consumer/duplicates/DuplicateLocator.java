@@ -205,16 +205,25 @@ public final class DuplicateLocator implements FileConsumer {
         for (List<Path> sub : bySmall.values()) {
             if (sub.size() < 2)
                 continue;
-            Map<String, List<Path>> byFull = new HashMap<>();
-            for (Path p : sub) {
-                try {
-                    byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>())
-                            .add(p);
-                } catch (IOException e) {
-                    LOGGER.debug("skip (full-hash failed): {} — {}", p, e.getMessage());
+            // For files no larger than the small-hash window, smallHash already digested every
+            // byte, so the bucket is byte-for-byte definitive; a full re-read would recompute an
+            // identical SHA-256. Skip the second pass and use the small-hash bucket directly.
+            List<List<Path>> contentGroups;
+            if (size <= ContentHasher.SMALL_HASH_BYTES) {
+                contentGroups = List.of(sub);
+            } else {
+                Map<String, List<Path>> byFull = new HashMap<>();
+                for (Path p : sub) {
+                    try {
+                        byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>())
+                                .add(p);
+                    } catch (IOException e) {
+                        LOGGER.debug("skip (full-hash failed): {} — {}", p, e.getMessage());
+                    }
                 }
+                contentGroups = new ArrayList<>(byFull.values());
             }
-            for (List<Path> group : byFull.values()) {
+            for (List<Path> group : contentGroups) {
                 if (group.size() < 2)
                     continue;
                 List<Path> distinct = keepOneNamePerInode(group);

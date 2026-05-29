@@ -77,6 +77,20 @@ final class ContentHasherTest {
     }
 
     @Test
+    void smallHash_equals_fullHash_for_a_file_no_larger_than_the_page() throws IOException {
+        // confirmGroup short-circuits the full-hash pass for files no larger than SMALL_HASH_BYTES
+        // because smallHash has already digested every byte. That is only sound if the two digests
+        // are identical for such files — pin it here so the optimization cannot rot into deleting
+        // files that were never full-content confirmed.
+        byte[] underPage = "well under one page".getBytes();
+        byte[] exactlyPage = repeat((byte) 'z', ContentHasher.SMALL_HASH_BYTES);
+        Path a = write("under.bin", underPage);
+        Path b = write("exact.bin", exactlyPage);
+        assertEquals(ContentHasher.fullHash(a), ContentHasher.smallHash(a));
+        assertEquals(ContentHasher.fullHash(b), ContentHasher.smallHash(b));
+    }
+
+    @Test
     void smallHash_differs_when_first_page_differs() throws IOException {
         byte[] pageA = repeat((byte) 'p', ContentHasher.SMALL_HASH_BYTES);
         byte[] pageB = pageA.clone();
