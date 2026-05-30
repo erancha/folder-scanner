@@ -33,6 +33,10 @@ public final class ShellScript {
      * elapsed minutes so the user can re-scan rather than acting on a stale plan. It does not abort:
      * the gap is advisory, and the type-to-confirm banner remains the hard stop.
      *
+     * The warning prints in bold red, but only when stderr is a terminal and {@code NO_COLOR} is
+     * unset; a redirected stderr collapses the color to the empty string so a piped log file never
+     * receives raw escape bytes.
+     *
      * @param createdEpochSeconds generation time as Unix epoch seconds, compared against the
      *     executing shell's {@code date +%s}
      */
@@ -40,8 +44,10 @@ public final class ShellScript {
         w.printf("CREATED=%d%n", createdEpochSeconds);
         w.println("ELAPSED_MIN=$(( ( $(date +%s) - CREATED ) / 60 ))");
         w.println("if [ \"$ELAPSED_MIN\" -gt 10 ]; then");
-        w.println("  echo \"WARNING: this script was generated $ELAPSED_MIN minutes ago; the scanned"
-                + " tree may have changed since — re-scan if unsure.\" >&2");
+        w.println("  if [ -t 2 ] && [ -z \"${NO_COLOR:-}\" ]; then "
+                + "C_WARN=$'\\033[1;31m'; C_OFF=$'\\033[0m'; else C_WARN=''; C_OFF=''; fi");
+        w.println("  echo \"${C_WARN}WARNING: this script was generated $ELAPSED_MIN minutes ago; the"
+                + " scanned tree may have changed since — re-scan if unsure.${C_OFF}\" >&2");
         w.println("fi");
         w.println();
     }

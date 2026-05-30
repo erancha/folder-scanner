@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -122,6 +123,32 @@ final class ShellScriptTest {
 
         assertTrue(output.contains("WARNING"), output);
         assertTrue(output.contains("20 minutes"), output);
+        // Redirected stderr is not a terminal, so the color must collapse to nothing: a raw escape
+        // byte here would corrupt a log file the user piped the warning into.
+        assertFalse(output.contains("\u001b"),
+                "no raw ANSI escape may leak when stderr is not a terminal: " + output);
+    }
+
+    @Test
+    void staleness_warning_is_red_when_stderr_is_a_terminal() throws Exception {
+        Assumptions.assumeTrue(Files.isExecutable(Paths.get("/usr/bin/script")),
+                "script(1) required to allocate a pty");
+        long twentyMinutesAgo = Instant.now().getEpochSecond() - 20 * 60;
+        StringWriter sw = new StringWriter();
+        ShellScript.writeStalenessGuard(new PrintWriter(sw), twentyMinutesAgo);
+        Path guard = Files.createTempFile("staleness", ".sh");
+        Files.writeString(guard, sw.toString());
+
+        // script(1) runs the child under a pseudo-terminal, so `[ -t 2 ]` is true and the warning
+        // must come back ANSI-colored. Captured via the relayed pty stream on stdout.
+        Process p = new ProcessBuilder("/usr/bin/script", "-qec", "bash " + guard, "/dev/null")
+                .redirectErrorStream(true).start();
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        p.waitFor();
+
+        assertTrue(output.contains("WARNING"), output);
+        assertTrue(output.contains("\u001b["),
+                "warning must be ANSI-colored when stderr is a terminal: " + output);
     }
 
     @Test
