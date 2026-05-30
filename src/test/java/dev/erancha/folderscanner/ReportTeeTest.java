@@ -12,8 +12,10 @@ import dev.erancha.folderscanner.config.QueueType;
 import dev.erancha.folderscanner.config.SortKey;
 import dev.erancha.folderscanner.config.SortOrder;
 import dev.erancha.folderscanner.producer.FileExtensions;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -52,14 +54,23 @@ final class ReportTeeTest {
                 SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, Set.of(),
                 FileExtensions.IncludeSet.ALL, ".");
 
-        PrintStream original = System.out;
-        try (ReportTee tee = ReportTee.install(cfg)) {
-            assertSame(original, System.out,
-                    "install must not redirect the JVM-global System.out");
-            tee.out().print("mirrored-report-line");
+        PrintStream realOut = System.out;
+        ByteArrayOutputStream terminalCapture = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(terminalCapture, true, StandardCharsets.UTF_8));
+        try {
+            PrintStream redirected = System.out;
+            try (ReportTee tee = ReportTee.install(cfg)) {
+                assertSame(redirected, System.out,
+                        "install must not redirect the JVM-global System.out");
+                tee.out().print("mirrored-report-line");
+            }
+            assertSame(redirected, System.out, "close must leave System.out untouched");
+        } finally {
+            System.setOut(realOut);
         }
 
-        assertSame(original, System.out, "close must leave System.out untouched");
+        assertTrue(terminalCapture.toString(StandardCharsets.UTF_8).contains("mirrored-report-line"),
+                "the tee must also fan writes to the terminal stream");
         assertTrue(Files.readString(outFile).contains("mirrored-report-line"),
                 "the explicit tee stream must mirror writes to the --out file");
     }

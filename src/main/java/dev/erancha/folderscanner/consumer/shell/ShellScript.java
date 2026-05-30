@@ -16,7 +16,8 @@ import java.nio.file.Path;
  */
 public final class ShellScript {
 
-    private ShellScript() {}
+    private ShellScript() {
+    }
 
     /** {@code #!/usr/bin/env bash} + {@code set -euo pipefail} + a blank line. */
     public static void writeShebang(PrintWriter w) {
@@ -28,17 +29,17 @@ public final class ShellScript {
     /**
      * Emits a runtime staleness check that warns when the script runs more than ten minutes after
      * it was generated. Targets are chosen (and, for duplicates, content-hashed) at scan time but
-     * the {@code rm}/{@code mv} runs only when the user later executes the script; a tree mutated in
-     * that window can leave the baked-in paths pointing at different bytes. The warning surfaces the
-     * elapsed minutes so the user can re-scan rather than acting on a stale plan. It does not abort:
-     * the gap is advisory, and the type-to-confirm banner remains the hard stop.
+     * the {@code rm}/{@code mv} runs only when the user later executes the script; a tree mutated
+     * in that window can leave the baked-in paths pointing at different bytes. The warning surfaces
+     * the elapsed minutes so the user can re-scan rather than acting on a stale plan. It does not
+     * abort: the gap is advisory, and the type-to-confirm banner remains the hard stop.
      *
      * The warning prints in bold red, but only when stderr is a terminal and {@code NO_COLOR} is
      * unset; a redirected stderr collapses the color to the empty string so a piped log file never
      * receives raw escape bytes.
      *
      * @param createdEpochSeconds generation time as Unix epoch seconds, compared against the
-     *     executing shell's {@code date +%s}
+     *                            executing shell's {@code date +%s}
      */
     public static void writeStalenessGuard(PrintWriter w, long createdEpochSeconds) {
         w.printf("CREATED=%d%n", createdEpochSeconds);
@@ -46,8 +47,9 @@ public final class ShellScript {
         w.println("if [ \"$ELAPSED_MIN\" -gt 10 ]; then");
         w.println("  if [ -t 2 ] && [ -z \"${NO_COLOR:-}\" ]; then "
                 + "C_WARN=$'\\033[1;31m'; C_OFF=$'\\033[0m'; else C_WARN=''; C_OFF=''; fi");
-        w.println("  echo \"${C_WARN}WARNING: this script was generated $ELAPSED_MIN minutes ago; the"
-                + " scanned tree may have changed since — re-scan if unsure.${C_OFF}\" >&2");
+        w.println(
+                "  echo \"${C_WARN}WARNING: this script was generated $ELAPSED_MIN minutes ago; the"
+                        + " scanned tree may have changed since — re-scan if unsure.${C_OFF}\" >&2");
         w.println("fi");
         w.println();
     }
@@ -79,10 +81,10 @@ public final class ShellScript {
         w.println("cat <<'BANNER'");
         w.println();
         w.println("  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        w.printf ("  !!  YOU ARE ABOUT TO %s %d FILES (%s)%n",
-                verb, fileCount, Format.humanBytes(totalBytes));
+        w.printf("  !!  YOU ARE ABOUT TO %s %d FILES (%s)%n", verb, fileCount,
+                Format.humanBytes(totalBytes));
         if (hardDelete) {
-            w.println("  !!  This action is IRREVERSIBLE (hard rm).               !!");
+            w.println("  !!  This action is IRREVERSIBLE (hard rm).");
         } else {
             w.println("  !!  Files can be recovered by moving them back manually. !!");
         }
@@ -109,12 +111,12 @@ public final class ShellScript {
     }
 
     /**
-     * Escapes the four characters that retain special meaning inside double-quoted shell
-     * arguments (\, ", $, `). Order matters: backslash must be replaced first, otherwise the
-     * substitutions added by the later steps would themselves get re-escaped.
+     * Escapes the four characters that retain special meaning inside double-quoted shell arguments
+     * (\, ", $, `). Order matters: backslash must be replaced first, otherwise the substitutions
+     * added by the later steps would themselves get re-escaped.
      *
-     * Newlines and other control characters need no escaping and pass through unchanged: bash
-     * keeps a literal newline as part of the surrounding double-quoted word, so the emitted
+     * Newlines and other control characters need no escaping and pass through unchanged: bash keeps
+     * a literal newline as part of the surrounding double-quoted word, so the emitted
      * {@code mv}/{@code rm} line still targets the single file named verbatim — it is not split
      * across commands. This is the only correctness guarantee that matters here; the four
      * metacharacters above are the complete set this routine must neutralize.
@@ -124,10 +126,7 @@ public final class ShellScript {
     }
 
     public static String shellQuoteString(String s) {
-        return s
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("$", "\\$")
-                .replace("`", "\\`");
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$").replace("`",
+                "\\`");
     }
 }
