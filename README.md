@@ -2,8 +2,11 @@
 
 A CLI utility that walks a directory tree in parallel and feeds every file to a pluggable consumer.
 The producer (scanner) and the consumer run on separate thread pools
-connected by a bounded queue — when the queue fills, the producer blocks, so
-heap stays flat regardless of tree size. Three consumers are currently available:
+connected by a bounded queue — when the queue fills, the producer blocks, so the
+in-flight buffer stays flat regardless of tree size. Total heap then depends on the
+consumer: `aggregate` keeps only bounded per-bucket aggregates, while `duplicates` and
+`filemanager` retain one entry per surviving file (O(files)). Three consumers are
+currently available:
 
 - `aggregate` — counts and bytes per extension, size bucket, and date bucket.
 - `duplicates` — finds identical-content files and writes a shell script that
