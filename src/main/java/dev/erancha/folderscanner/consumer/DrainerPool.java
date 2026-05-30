@@ -1,5 +1,6 @@
 package dev.erancha.folderscanner.consumer;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -7,6 +8,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fixed pool of queue-draining workers shared by every FileConsumer.
@@ -19,6 +23,11 @@ import java.util.concurrent.TimeUnit;
  * success on an under-counted scan.
  */
 public final class DrainerPool {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DrainerPool.class);
+
+    private static final Duration HEARTBEAT_AFTER = Duration.ofMinutes(10);
+    private static final Duration HEARTBEAT_INTERVAL = Duration.ofMinutes(1);
 
     private final ThreadPoolExecutor pool;
     private final String consumerName;
@@ -46,13 +55,24 @@ public final class DrainerPool {
     }
 
     /**
-     * Stops intake, blocks until every drainer exits (1-hour ceiling guards a stuck run), then
-     * rethrows the first drainer that died on an unchecked throw with its original cause attached.
+     * Blocks until all drainers finish. If a drainer died on an unchecked throw, that throw is
+     * rethrown here with its original cause attached. A drain still running after
+     * {@link #HEARTBEAT_AFTER} logs a periodic heartbeat so a stuck drainer stays observable.
      */
     public void awaitTermination() throws InterruptedException {
+        awaitTermination(HEARTBEAT_AFTER, HEARTBEAT_INTERVAL);
+    }
+
+    // package-private so tests can drive sub-second silent windows and heartbeat intervals
+    void awaitTermination(Duration silentWindow, Duration heartbeatInterval)
+            throws InterruptedException {
         pool.shutdown();
-        if (!pool.awaitTermination(1, TimeUnit.HOURS)) {
-            throw new IllegalStateException(consumerName + " did not terminate within 1 hour");
+        long startNanos = System.nanoTime();
+        Duration wait = silentWindow;
+        while (!pool.awaitTermination(wait.toMillis(), TimeUnit.MILLISECONDS)) {
+            LOGGER.warn("{} still draining after {}s", consumerName,
+                    TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos));
+            wait = heartbeatInterval;
         }
         for (Future<?> d : drainers) {
             try {
