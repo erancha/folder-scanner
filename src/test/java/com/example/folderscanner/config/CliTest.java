@@ -2,10 +2,13 @@ package com.example.folderscanner.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
@@ -302,6 +305,20 @@ final class CliTest {
     @Test
     void include_set_all_singleton_is_reused_when_no_filter_is_set() {
         assertSame(parse().includeExtensions(), parse().includeExtensions());
+    }
+
+    @Test
+    void version_output_tracks_the_build_version() {
+        // project.version is injected by surefire straight from the POM; the CLI derives its
+        // version from the resource-filtered version.properties. Two paths, one POM source: this
+        // catches any drift between the build artifact's version and what --version prints.
+        String pomVersion = System.getProperty("project.version");
+        assertNotNull(pomVersion, "surefire must inject project.version (run under Maven)");
+
+        StringWriter sink = new StringWriter();
+        new CommandLine(new Cli()).printVersionHelp(new PrintWriter(sink));
+
+        assertEquals("folder-scanner " + pomVersion, sink.toString().trim());
     }
 
     @Test

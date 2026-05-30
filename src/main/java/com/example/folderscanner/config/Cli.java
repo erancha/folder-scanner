@@ -16,8 +16,8 @@ import picocli.CommandLine.Parameters;
  * applies the semantic rules and aggregates their failures into one message. The launcher scripts
  * forward args verbatim and hold no flag knowledge, so this class is the single source of truth.
  */
-@Command(name = "folder-scanner", mixinStandardHelpOptions = true, version = "folder-scanner 1.0",
-        sortOptions = false, usageHelpWidth = 100,
+@Command(name = "folder-scanner", mixinStandardHelpOptions = true,
+        versionProvider = VersionProvider.class, sortOptions = false, usageHelpWidth = 100,
         description = "Concurrently scan a directory tree and either aggregate files by "
                 + "extension/size/date, locate duplicate content, or list/delete matching files.")
 public final class Cli {

@@ -1,0 +1,30 @@
+name: CI
+
+# Gate every change that reaches main: PRs are verified before merge, and commits landing on main
+# (direct push or merge) are verified again on a clean runner.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # `mvn clean package` runs the JUnit unit suite, then builds the shaded jar the e2e suite
+      # drives. tests.sh --e2e deliberately does not rebuild, so the jar must exist first.
+      - name: Build jar (runs unit tests)
+        run: ./scripts/start.sh --build
+
+      - name: End-to-end tests
+        run: ./scripts/tests.sh --e2e

@@ -41,6 +41,27 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!-- Filtered copy: writes target/classes/version.properties with ${project.version}
+                 replaced by the literal POM version; VersionProvider reads it to report the
+                 version. Its own block because <filtering> is per-block, not per-file. -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>version.properties</include>
+                </includes>
+            </resource>
+            <!-- Verbatim copy: writes every other resource (logback.xml) into target/classes
+                 unchanged, so its own ${...} tokens survive for logback to resolve at runtime. -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>version.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -50,6 +71,15 @@
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- Feed the POM version straight to the drift guard in CliTest, which
+                             cross-checks it against the value the CLI reads from the
+                             resource-filtered version.properties — two independent paths from the
+                             same POM source, so any divergence fails the test. -->
+                        <project.version>${project.version}</project.version>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
