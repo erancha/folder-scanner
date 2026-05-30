@@ -39,7 +39,7 @@ final class CliTest {
         Config cfg = parse();
         assertEquals(4096, cfg.queueSize());
         assertFalse(cfg.statsEnabled());
-        assertEquals(Math.max(8, NCPU * 4), cfg.producers());
+        assertEquals(NCPU * 16, cfg.producers());
         assertEquals(Math.max(4, NCPU * 2), cfg.consumers());
         assertEquals(QueueType.ABQ, cfg.queueType());
         assertEquals(ConsumerKind.AGGREGATE, cfg.consumerKind());

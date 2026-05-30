@@ -199,6 +199,30 @@ assert_contains "exclude_on_hides_node_modules_file" "$OUT" "Files=5"
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB "$FIXTURE" 2>&1)" || true
 assert_contains "min_size_files_count" "$OUT" "Files=2"
 assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.00 KB): 3 files"
+# The min-size threshold is echoed as an opener line right after Excluding, and
+# the run-level summary (Done / Run stats) now sits in the openers above the
+# detail tables rather than trailing them.
+assert_contains "min_size_opener_line" "$OUT" "Min size: 1.00 KB"
+# With no extension filter the openers echo the all-extensions sentinel, sitting
+# between Excluding and Min size.
+assert_contains "all_extensions_opener_line" "$OUT" "Extensions: [*]"
+EXCL_LN="$(printf '%s\n' "$OUT" | grep -n '^Excluding directories:' | head -1 | cut -d: -f1)"
+EXT_LN="$(printf '%s\n' "$OUT" | grep -n '^Extensions:' | head -1 | cut -d: -f1)"
+MIN_LN="$(printf '%s\n' "$OUT" | grep -n '^Min size:' | head -1 | cut -d: -f1)"
+if [ -n "$EXCL_LN" ] && [ -n "$EXT_LN" ] && [ -n "$MIN_LN" ] \
+        && [ "$EXCL_LN" -lt "$EXT_LN" ] && [ "$EXT_LN" -lt "$MIN_LN" ]; then
+    ok "extensions_opener_between_excluding_and_minsize"
+else
+    fail "extensions_opener_between_excluding_and_minsize" \
+        "Excluding[$EXCL_LN] Extensions[$EXT_LN] Min size[$MIN_LN]"
+fi
+DONE_LN="$(printf '%s\n' "$OUT" | grep -n '^Done in ' | head -1 | cut -d: -f1)"
+TABLE_LN="$(printf '%s\n' "$OUT" | grep -n 'By size bucket:' | head -1 | cut -d: -f1)"
+if [ -n "$DONE_LN" ] && [ -n "$TABLE_LN" ] && [ "$DONE_LN" -lt "$TABLE_LN" ]; then
+    ok "done_line_precedes_detail_tables"
+else
+    fail "done_line_precedes_detail_tables" "Done at line [$DONE_LN], table at [$TABLE_LN]"
+fi
 
 # ---- test 10: --file-extensions filters non-matching extensions at the producer -
 # Only .txt allowed. Drops the four .bin files (dup_a, dup_b, unique, big);
@@ -206,6 +230,7 @@ assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.00 KB): 3 files
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --file-extensions=txt "$FIXTURE" 2>&1)" || true
 assert_contains "file_extensions_files_count" "$OUT" "Files=1"
 assert_contains "file_extensions_report_line" "$OUT" "Skipped (extension not in [txt]): 4 files"
+assert_contains "file_extensions_opener_line" "$OUT" "Extensions: [txt]"
 # The by-extension table should contain a txt row but no bin row.
 TXT_ROW="$(printf "%s" "$OUT" | grep -E '^\s*txt\b' || true)"
 assert_contains "file_extensions_txt_row_present" "$TXT_ROW" "txt"

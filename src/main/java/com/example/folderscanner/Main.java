@@ -7,11 +7,14 @@ import com.example.folderscanner.consumer.aggregator.Aggregator;
 import com.example.folderscanner.consumer.duplicates.DuplicateLocator;
 import com.example.folderscanner.consumer.filemanager.FileManager;
 import com.example.folderscanner.data.FileInfo;
+import com.example.folderscanner.data.Format;
 import com.example.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
+import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -113,18 +116,24 @@ public final class Main {
             long cpu0 = OS_MX.getProcessCpuTime();
             consumer.start();
             executeScan(out, scanner, consumer, queue, cfg, root, t0);
-            consumer.awaitAndReport(out);
 
-            ReportPrinter.printFilterSummary(out, new ReportPrinter.FilterTally(
-                    cfg.minSizeBytes(), scanner.filteredBySizeCount(), scanner.filteredBySizeBytes(),
-                    cfg.includeExtensions(), scanner.filteredByExtensionCount(),
-                    scanner.filteredByExtensionBytes(), scanner.inaccessibleDirCount(),
-                    scanner.inaccessibleFileCount()));
+            // Buffer the consumer's detail tables and the filter tallies so the run-level summary
+            // (Done / Run stats), which is only computable after the scan finishes, can still print
+            // up in the openers — adjacent to the producer/consumer counts — above this detail.
+            ByteArrayOutputStream detailBuf = new ByteArrayOutputStream();
+            PrintStream detail = new PrintStream(detailBuf, true, StandardCharsets.UTF_8);
+            consumer.awaitAndReport(detail);
+            ReportPrinter.printFilterSummary(detail,
+                    new ReportPrinter.FilterTally(cfg.minSizeBytes(), scanner.filteredBySizeCount(),
+                            scanner.filteredBySizeBytes(), cfg.includeExtensions(),
+                            scanner.filteredByExtensionCount(), scanner.filteredByExtensionBytes(),
+                            scanner.inaccessibleDirCount(), scanner.inaccessibleFileCount()));
 
             long elapsedNs = System.nanoTime() - t0;
             ReportPrinter.printDone(out, elapsedNs / 1_000_000, consumer.totalFilesSeen(),
                     consumer.totalBytesSeen());
             printRunSummary(out, elapsedNs, cpu0);
+            out.print(detailBuf.toString(StandardCharsets.UTF_8));
 
             if (cfg.statsEnabled())
                 printStats(out, queue, t0, cfg.queueSize());
@@ -144,7 +153,8 @@ public final class Main {
         };
     }
 
-    private static FileConsumer createConsumer(Config cfg, BlockingQueue<FileInfo> queue, Path root) {
+    private static FileConsumer createConsumer(Config cfg, BlockingQueue<FileInfo> queue,
+            Path root) {
         return switch (cfg.consumerKind()) {
         case AGGREGATE -> new Aggregator(queue, cfg.consumers());
         case DUPLICATES -> new DuplicateLocator(queue, cfg.consumers(), cfg.outPath(),
@@ -155,11 +165,12 @@ public final class Main {
     }
 
     private static void printScanHeader(PrintStream out, Config cfg, Path root) {
-        out.printf(
-                "%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n",
+        out.printf("%n%nScanning %s (%d threads) ==> consumer=%s (%d threads) thru queue=%s/%d%n",
                 root, cfg.producers(), cfg.consumerKind().cliName(), cfg.consumers(),
                 cfg.queueType().cliName(), cfg.queueSize());
         out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
+        out.printf("Extensions: %s%n", cfg.includeExtensions().displayList());
+        out.printf("Min size: %s%n", Format.humanBytes(cfg.minSizeBytes()));
     }
 
     /**
@@ -201,8 +212,8 @@ public final class Main {
         Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024);
         long maxMb = rt.maxMemory() / (1024 * 1024);
-        out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n", threads,
-                peak, usedMb, maxMb, cpuPct);
+        out.printf("Run stats: threads=%d/peak=%d  heap=%d/%d MB  cpu=%.0f%%%n", threads, peak,
+                usedMb, maxMb, cpuPct);
     }
 
     /**

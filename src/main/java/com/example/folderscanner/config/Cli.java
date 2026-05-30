@@ -48,7 +48,7 @@ public final class Cli {
 
     // --- Producers (folder walkers) and the filtering they apply before the queue ---
     @Option(names = "--producers", paramLabel = "N", description = {
-            "Scanner (folder-walker) threads. Default max(8, NCPU*4).",
+            "Scanner (folder-walker) threads. Default NCPU*16.",
             "Directory walking is IO-bound, so over-subscribing CPUs is intentional."})
     Integer producers;
 
@@ -134,7 +134,7 @@ public final class Cli {
         List<String> errors = new ArrayList<>();
 
         int queueSizeV = queueSize != null ? queueSize : 4096;
-        int producersV = producers != null ? producers : Math.max(8, ncpu * 4);
+        int producersV = producers != null ? producers : ncpu * 16;
         int consumersV = consumers != null ? consumers : Math.max(4, ncpu * 2);
         if (producersV < 1) errors.add("producers must be >= 1");
         if (consumersV < 1) errors.add("consumers must be >= 1");
