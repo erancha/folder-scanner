@@ -3,7 +3,7 @@ package com.example.folderscanner.consumer.filemanager;
 import com.example.folderscanner.config.ManageAction;
 import com.example.folderscanner.config.SortKey;
 import com.example.folderscanner.config.SortOrder;
-import com.example.folderscanner.consumer.FileConsumer;
+import com.example.folderscanner.consumer.AbstractFileConsumer;
 import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.ExtensionFileInfo;
 import com.example.folderscanner.data.FileInfo;
@@ -21,10 +21,6 @@ import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Lists or deletes the files surviving the producer filters (--exclude / --min-size /
@@ -37,10 +33,8 @@ import java.util.concurrent.atomic.LongAdder;
  * same soft-quarantine/hard-rm machinery ({@link DeleteScript} over the shared shell primitives)
  * as the duplicates consumer.
  */
-public final class FileManager implements FileConsumer {
+public final class FileManager extends AbstractFileConsumer {
 
-    private final BlockingQueue<FileInfo> queue;
-    private final ThreadPoolExecutor drainerPool;
     private final String outPathRaw;
     private final ManageAction action;
     private final boolean hardDelete;
@@ -50,27 +44,17 @@ public final class FileManager implements FileConsumer {
 
     // Every file surviving the producer filters; multiple drainers append concurrently.
     private final Queue<PathFileInfo> matched = new ConcurrentLinkedQueue<>();
-    private final LongAdder totalFiles = new LongAdder();
-    private final LongAdder totalBytes = new LongAdder();
 
     public FileManager(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
             ManageAction action, boolean hardDelete, Path sourceTree, SortKey sortKey,
             SortOrder sortOrder) {
-        if (consumerThreads < 1)
-            throw new IllegalArgumentException("consumerThreads must be >= 1");
-        this.queue = queue;
+        super(queue, consumerThreads, "file manager");
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.action = action;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
         this.sortKey = sortKey;
         this.sortOrder = sortOrder;
-        this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
-    }
-
-    @Override
-    public int drainerCount() {
-        return drainerPool.getCorePoolSize();
     }
 
     @Override
@@ -79,19 +63,13 @@ public final class FileManager implements FileConsumer {
                 attrs.lastModifiedTime().toMillis());
     }
 
-    @Override
-    public void start() {
-        for (int i = 0, n = drainerPool.getCorePoolSize(); i < n; i++) {
-            drainerPool.submit(this::consume);
-        }
-    }
-
     /**
      * Drainer loop: takes messages from the producer queue and records each matched file. Exits on
      * PoisonPill. Switch is over the sealed FileInfo type, so a future variant becomes a compile
      * error here; the ExtensionFileInfo arm surfaces a mis-wired producer instead of a silent cast.
      */
-    void consume() {
+    @Override
+    protected void consume() {
         try {
             while (true) {
                 FileInfo f = queue.take();
@@ -115,11 +93,7 @@ public final class FileManager implements FileConsumer {
     }
 
     @Override
-    public void awaitAndReport(PrintStream out) throws InterruptedException {
-        drainerPool.shutdown();
-        if (!drainerPool.awaitTermination(1, TimeUnit.HOURS)) {
-            throw new IllegalStateException("file manager did not terminate within 1 hour");
-        }
+    protected void report(PrintStream out) {
         List<PathFileInfo> files = new ArrayList<>(matched);
         files.sort(listingComparator());
         if (action == ManageAction.DELETE) {
@@ -192,15 +166,5 @@ public final class FileManager implements FileConsumer {
                 Format.humanBytes(totalBytes.sum()),
                 hardDelete ? "to hard-delete" : "to quarantine");
         out.printf("Wrote %s — INSPECT BEFORE RUNNING.%n", scriptPath.toAbsolutePath());
-    }
-
-    @Override
-    public long totalFilesSeen() {
-        return totalFiles.sum();
-    }
-
-    @Override
-    public long totalBytesSeen() {
-        return totalBytes.sum();
     }
 }

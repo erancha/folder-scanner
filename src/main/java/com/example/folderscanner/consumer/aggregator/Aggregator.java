@@ -1,6 +1,6 @@
 package com.example.folderscanner.consumer.aggregator;
 
-import com.example.folderscanner.consumer.FileConsumer;
+import com.example.folderscanner.consumer.AbstractFileConsumer;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.Format;
 import com.example.folderscanner.data.PathFileInfo;
@@ -22,8 +22,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -33,10 +31,7 @@ import java.util.concurrent.atomic.LongAdder;
  * Multiple drainer threads: the per-message work is tiny but high-frequency; a single drainer would
  * bottleneck at line rate before the producer's queue.put() ever blocks.
  */
-public final class Aggregator implements FileConsumer {
-
-    private final BlockingQueue<FileInfo> queue;
-    private final ThreadPoolExecutor drainerPool;
+public final class Aggregator extends AbstractFileConsumer {
 
     // Keys are file extensions (e.g. "jpg").
     private final ConcurrentHashMap<String, LongAdder> countByExtension = new ConcurrentHashMap<>();
@@ -60,9 +55,6 @@ public final class Aggregator implements FileConsumer {
     private final ConcurrentHashMap<Integer, LongAdder> countByPriorYear = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Integer, LongAdder> bytesByPriorYear = new ConcurrentHashMap<>();
 
-    private final LongAdder totalFiles = new LongAdder();
-    private final LongAdder totalBytes = new LongAdder();
-
     // Epoch-milli boundaries computed once at construction so the hot path is long-compares only.
     private final long yearStartMillis;
     private final long monthStartMillis;
@@ -74,10 +66,7 @@ public final class Aggregator implements FileConsumer {
     private static final int TABLE_INDENT = 4;
 
     public Aggregator(BlockingQueue<FileInfo> queue, int consumerThreads) {
-        if (consumerThreads < 1)
-            throw new IllegalArgumentException("consumerThreads must be >= 1");
-        this.queue = queue;
-        this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
+        super(queue, consumerThreads, "aggregator");
         for (int i = 0; i < countBySize.length; i++) {
             countBySize[i] = new LongAdder();
             bytesBySize[i] = new LongAdder();
@@ -97,11 +86,6 @@ public final class Aggregator implements FileConsumer {
     }
 
     @Override
-    public int drainerCount() {
-        return drainerPool.getCorePoolSize();
-    }
-
-    @Override
     public FileInfoFactory factory() {
         return (path, attrs) -> new ExtensionFileInfo(extensionOf(path), attrs.size(),
                 attrs.lastModifiedTime().toMillis());
@@ -115,19 +99,13 @@ public final class Aggregator implements FileConsumer {
         return FileExtensions.extensionOf(file);
     }
 
-    @Override
-    public void start() {
-        for (int i = 0, n = drainerPool.getCorePoolSize(); i < n; i++) {
-            drainerPool.submit(this::consume);
-        }
-    }
-
     /**
      * Drainer loop. Exhaustive switch over the sealed FileInfo hierarchy turns a future variant
      * into a compile error here; the PathFileInfo arm exists only to surface a mis-wired producer
      * as IllegalStateException instead of a silent ClassCastException on a pool thread.
      */
-    void consume() {
+    @Override
+    protected void consume() {
         try {
             while (true) {
                 FileInfo f = queue.take();
@@ -188,23 +166,8 @@ public final class Aggregator implements FileConsumer {
     }
 
     @Override
-    public void awaitAndReport(PrintStream out) throws InterruptedException {
-        // shutdown() (not shutdownNow) so queued items still drain — drainers exit on POISON.
-        drainerPool.shutdown();
-        if (!drainerPool.awaitTermination(1, java.util.concurrent.TimeUnit.HOURS)) {
-            throw new IllegalStateException("aggregator did not terminate within 1 hour");
-        }
+    protected void report(PrintStream out) {
         printResult(out, snapshot());
-    }
-
-    @Override
-    public long totalFilesSeen() {
-        return totalFiles.sum();
-    }
-
-    @Override
-    public long totalBytesSeen() {
-        return totalBytes.sum();
     }
 
     AggregationResult snapshot() {

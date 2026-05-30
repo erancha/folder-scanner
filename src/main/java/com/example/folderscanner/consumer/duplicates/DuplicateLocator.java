@@ -1,6 +1,6 @@
 package com.example.folderscanner.consumer.duplicates;
 
-import com.example.folderscanner.consumer.FileConsumer;
+import com.example.folderscanner.consumer.AbstractFileConsumer;
 import com.example.folderscanner.consumer.shell.OutPathResolver;
 import com.example.folderscanner.data.FileInfo;
 import com.example.folderscanner.data.PathFileInfo;
@@ -22,14 +22,8 @@ import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Locates files with identical content and emits a shell script that quarantines or deletes the
@@ -42,17 +36,8 @@ import org.slf4j.LoggerFactory;
  * most large files are never read in full. (3) ScriptWriter emits the shell script for the user to
  * inspect.
  */
-public final class DuplicateLocator implements FileConsumer {
+public final class DuplicateLocator extends AbstractFileConsumer {
 
-    /**
-     * Channel for recoverable hash failures during phase 2. A file can disappear or have its
-     * permissions tightened between size-bucketing and hashing; that is expected on a live
-     * filesystem and emitted at DEBUG so it stays below the default Logback threshold.
-     */
-    private static final Logger LOGGER = LoggerFactory.getLogger(DuplicateLocator.class);
-
-    private final BlockingQueue<FileInfo> queue;
-    private final ThreadPoolExecutor drainerPool;
     private final String outPathRaw;
     private final boolean hardDelete;
     private final Path sourceTree;
@@ -60,8 +45,6 @@ public final class DuplicateLocator implements FileConsumer {
     // One bucket per file size: the key (Long) is the file size; the value (Queue<Path>) holds the
     // paths of all files with that size.
     private final ConcurrentHashMap<Long, Queue<Path>> pathsBySize = new ConcurrentHashMap<>();
-    private final LongAdder totalFiles = new LongAdder();
-    private final LongAdder totalBytes = new LongAdder();
 
     private long phase1StartNs;
     private long phase1ElapsedMs;
@@ -69,18 +52,10 @@ public final class DuplicateLocator implements FileConsumer {
 
     public DuplicateLocator(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
             boolean hardDelete, Path sourceTree) {
-        if (consumerThreads < 1)
-            throw new IllegalArgumentException("consumerThreads must be >= 1");
-        this.queue = queue;
+        super(queue, consumerThreads, "duplicate locator");
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
-        this.drainerPool = (ThreadPoolExecutor) Executors.newFixedThreadPool(consumerThreads);
-    }
-
-    @Override
-    public int drainerCount() {
-        return drainerPool.getCorePoolSize();
     }
 
     @Override
@@ -92,9 +67,7 @@ public final class DuplicateLocator implements FileConsumer {
     @Override
     public void start() {
         phase1StartNs = System.nanoTime();
-        for (int i = 0, n = drainerPool.getCorePoolSize(); i < n; i++) {
-            drainerPool.submit(this::consume);
-        }
+        super.start();
     }
 
     /**
@@ -104,7 +77,8 @@ public final class DuplicateLocator implements FileConsumer {
      * Switch is over the sealed FileInfo type — compiler enforces exhaustiveness, so any future
      * variant added to FileInfo becomes a compile error here until handled.
      */
-    void consume() {
+    @Override
+    protected void consume() {
         try {
             while (true) {
                 FileInfo f = queue.take();
@@ -131,11 +105,7 @@ public final class DuplicateLocator implements FileConsumer {
     }
 
     @Override
-    public void awaitAndReport(PrintStream out) throws InterruptedException {
-        drainerPool.shutdown();
-        if (!drainerPool.awaitTermination(1, TimeUnit.HOURS)) {
-            throw new IllegalStateException("duplicate locator did not terminate within 1 hour");
-        }
+    protected void report(PrintStream out) {
         phase1ElapsedMs = (System.nanoTime() - phase1StartNs) / 1_000_000L;
 
         DuplicateReport report = runPhase2();
@@ -199,7 +169,7 @@ public final class DuplicateLocator implements FileConsumer {
             try {
                 bySmall.computeIfAbsent(ContentHasher.smallHash(p), k -> new ArrayList<>()).add(p);
             } catch (IOException e) {
-                LOGGER.debug("skip (small-hash failed): {} — {}", p, e.getMessage());
+                logger.debug("skip (small-hash failed): {} — {}", p, e.getMessage());
             }
         }
         List<DuplicateReport.Group> out = new ArrayList<>();
@@ -219,7 +189,7 @@ public final class DuplicateLocator implements FileConsumer {
                         byFull.computeIfAbsent(ContentHasher.fullHash(p), k -> new ArrayList<>())
                                 .add(p);
                     } catch (IOException e) {
-                        LOGGER.debug("skip (full-hash failed): {} — {}", p, e.getMessage());
+                        logger.debug("skip (full-hash failed): {} — {}", p, e.getMessage());
                     }
                 }
                 contentGroups = new ArrayList<>(byFull.values());
@@ -251,7 +221,7 @@ public final class DuplicateLocator implements FileConsumer {
      * An independent copy lives on its own inode and is kept as a genuine duplicate. A path whose
      * filesystem reports no fileKey is keyed by itself, so distinct names never collapse together.
      */
-    private static List<Path> keepOneNamePerInode(List<Path> sameContent) {
+    private List<Path> keepOneNamePerInode(List<Path> sameContent) {
         // Key: inode identity (fileKey), or the path itself when no fileKey is available.
         // Value: the lexicographically first name seen for that inode.
         Map<Object, Path> keptNameByInode = new HashMap<>();
@@ -262,25 +232,15 @@ public final class DuplicateLocator implements FileConsumer {
         return new ArrayList<>(keptNameByInode.values());
     }
 
-    private static Object inodeKey(Path p) {
+    private Object inodeKey(Path p) {
         try {
             Object key = Files.readAttributes(p, BasicFileAttributes.class).fileKey();
             if (key != null)
                 return key;
         } catch (IOException e) {
-            LOGGER.debug("inode lookup failed, treating as distinct: {} — {}", p, e.getMessage());
+            logger.debug("inode lookup failed, treating as distinct: {} — {}", p, e.getMessage());
         }
         return p;
-    }
-
-    @Override
-    public long totalFilesSeen() {
-        return totalFiles.sum();
-    }
-
-    @Override
-    public long totalBytesSeen() {
-        return totalBytes.sum();
     }
 
     /**
