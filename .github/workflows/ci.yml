@@ -1,10 +1,12 @@
 name: CI
 
 # Gate every change that reaches main: PRs are verified before merge, and commits landing on main
-# (direct push or merge) are verified again on a clean runner.
+# (direct push or merge) are verified again on a clean runner. Pushing a `v*` tag runs the same
+# gate, then publishes the distributable jar (see the release job).
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -28,3 +30,61 @@ jobs:
 
       - name: End-to-end tests
         run: ./scripts/tests.sh --e2e
+
+  # Publish the distributable jar to a GitHub Release. Runs only for `v*` tag pushes, and only
+  # after `test` passes, so no artifact is ever released on a red commit. The tag is the single
+  # source of the published version: versions:set rewrites the POM so the shaded jar is named for
+  # the tag and the CLI reports it (version.properties is filtered from the same POM version, and
+  # the package run's unit tests re-assert that drift guard at the stamped version).
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Stamp POM version from tag
+        run: mvn -B -q versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
+
+      - name: Build distributable jar (runs unit tests)
+        run: ./scripts/start.sh --build
+
+      # gh and GITHUB_TOKEN are preinstalled on the runner, so no third-party action is pinned.
+      # Release notes embed the jar's own --help so the documented flags come from picocli (the
+      # single source of truth) and cannot drift; the generate-notes API supplies the changelog.
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          jar="target/folder-scanner-${version}.jar"
+          {
+            echo "## Run"
+            echo
+            echo "Download \`$(basename "$jar")\` below (requires Java 21+), then:"
+            echo
+            echo '```'
+            echo "java -jar $(basename "$jar") [options] [PATH]"
+            echo '```'
+            echo
+            echo "## Options"
+            echo
+            echo '```'
+            java -jar "$jar" --help
+            echo '```'
+            echo
+            echo "## Changes"
+            echo
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+              -f tag_name="${GITHUB_REF_NAME}" -q .body
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" "$jar" --title "$GITHUB_REF_NAME" --notes-file notes.md
