@@ -47,7 +47,13 @@ final class FileManagerTest {
                 SortKey.PATH, SortOrder.ASC);
         queue.put(new ExtensionFileInfo("txt", 100L, 0L));
         queue.put(FileInfo.POISON);
-        assertThrows(IllegalStateException.class, fm::consume);
+        fm.start();
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> fm.awaitAndReport(new java.io.PrintStream(java.io.OutputStream.nullOutputStream())));
+        // The guard, not a bare ClassCastException: DrainerPool wraps any drainer death as an
+        // IllegalStateException, so the named cause is what proves the foreign variant was caught.
+        assertTrue(thrown.getCause().getMessage().contains("received ExtensionFileInfo"),
+                "expected the foreign-variant guard message; was " + thrown.getCause());
     }
 
     @Test

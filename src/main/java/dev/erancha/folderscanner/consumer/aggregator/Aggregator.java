@@ -3,8 +3,6 @@ package dev.erancha.folderscanner.consumer.aggregator;
 import dev.erancha.folderscanner.consumer.AbstractFileConsumer;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
-import dev.erancha.folderscanner.data.PathFileInfo;
-import dev.erancha.folderscanner.data.PoisonPill;
 import dev.erancha.folderscanner.data.ExtensionFileInfo;
 import dev.erancha.folderscanner.producer.FileInfoFactory;
 import dev.erancha.folderscanner.producer.FileExtensions;
@@ -31,7 +29,7 @@ import java.util.concurrent.atomic.LongAdder;
  * Multiple drainer threads: the per-message work is tiny but high-frequency; a single drainer would
  * bottleneck at line rate before the producer's queue.put() ever blocks.
  */
-public final class Aggregator extends AbstractFileConsumer {
+public final class Aggregator extends AbstractFileConsumer<ExtensionFileInfo> {
 
     // Keys are file extensions (e.g. "jpg").
     private final ConcurrentHashMap<String, LongAdder> countByExtension = new ConcurrentHashMap<>();
@@ -66,7 +64,7 @@ public final class Aggregator extends AbstractFileConsumer {
     private static final int TABLE_INDENT = 4;
 
     public Aggregator(BlockingQueue<FileInfo> queue, int consumerThreads) {
-        super(queue, consumerThreads, "aggregator");
+        super(queue, consumerThreads, "aggregator", ExtensionFileInfo.class);
         for (int i = 0; i < countBySize.length; i++) {
             countBySize[i] = new LongAdder();
             bytesBySize[i] = new LongAdder();
@@ -99,40 +97,14 @@ public final class Aggregator extends AbstractFileConsumer {
         return FileExtensions.extensionOf(file);
     }
 
-    /**
-     * Drainer loop. Exhaustive switch over the sealed FileInfo hierarchy turns a future variant
-     * into a compile error here; the PathFileInfo arm exists only to surface a mis-wired producer
-     * as IllegalStateException instead of a silent ClassCastException on a pool thread.
-     */
     @Override
-    protected void consume() {
-        try {
-            while (true) {
-                FileInfo f = queue.take();
-                switch (f) {
-                case ExtensionFileInfo t -> {
-                    totalFiles.increment();
-                    totalBytes.add(t.size());
-                    countByExtension.computeIfAbsent(t.extension(), k -> new LongAdder())
-                            .increment();
-                    bytesByExtension.computeIfAbsent(t.extension(), k -> new LongAdder())
-                            .add(t.size());
-                    SizeBucket b = SizeBucket.of(t.size());
-                    countBySize[b.ordinal()].increment();
-                    bytesBySize[b.ordinal()].add(t.size());
-                    classifyByDate(t.lastModifiedMillis(), t.size());
-                }
-                case PoisonPill ignored -> {
-                    return;
-                }
-                case PathFileInfo ignored -> throw new IllegalStateException(
-                        "Aggregator received PathFileInfo; its factory() produces only "
-                                + "ExtensionFileInfo");
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+    protected void accept(ExtensionFileInfo t) {
+        countByExtension.computeIfAbsent(t.extension(), k -> new LongAdder()).increment();
+        bytesByExtension.computeIfAbsent(t.extension(), k -> new LongAdder()).add(t.size());
+        SizeBucket b = SizeBucket.of(t.size());
+        countBySize[b.ordinal()].increment();
+        bytesBySize[b.ordinal()].add(t.size());
+        classifyByDate(t.lastModifiedMillis(), t.size());
     }
 
     /**

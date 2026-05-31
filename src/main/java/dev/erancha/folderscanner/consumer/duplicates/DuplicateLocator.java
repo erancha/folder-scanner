@@ -4,8 +4,6 @@ import dev.erancha.folderscanner.consumer.AbstractFileConsumer;
 import dev.erancha.folderscanner.consumer.shell.OutPathResolver;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.PathFileInfo;
-import dev.erancha.folderscanner.data.PoisonPill;
-import dev.erancha.folderscanner.data.ExtensionFileInfo;
 import dev.erancha.folderscanner.producer.FileInfoFactory;
 
 import java.io.IOException;
@@ -36,7 +34,7 @@ import java.util.stream.Collectors;
  * most large files are never read in full. (3) ScriptWriter emits the shell script for the user to
  * inspect.
  */
-public final class DuplicateLocator extends AbstractFileConsumer {
+public final class DuplicateLocator extends AbstractFileConsumer<PathFileInfo> {
 
     private final String outPathRaw;
     private final boolean hardDelete;
@@ -52,7 +50,7 @@ public final class DuplicateLocator extends AbstractFileConsumer {
 
     public DuplicateLocator(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
             boolean hardDelete, Path sourceTree) {
-        super(queue, consumerThreads, "duplicate locator");
+        super(queue, consumerThreads, "duplicate locator", PathFileInfo.class);
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.hardDelete = hardDelete;
         this.sourceTree = sourceTree;
@@ -70,38 +68,9 @@ public final class DuplicateLocator extends AbstractFileConsumer {
         super.start();
     }
 
-    /**
-     * Drainer loop: takes messages from the queue shared from the producer and adds each path to
-     * its size-bucket. Exits on PoisonPill; any other variant means a producer wiring bug.
-     *
-     * Switch is over the sealed FileInfo type — compiler enforces exhaustiveness, so any future
-     * variant added to FileInfo becomes a compile error here until handled.
-     */
     @Override
-    protected void consume() {
-        try {
-            while (true) {
-                FileInfo f = queue.take();
-                switch (f) {
-                case PathFileInfo p -> {
-                    totalFiles.increment();
-                    totalBytes.add(p.size());
-                    // Many drainers may add to the same bucket at once; ConcurrentLinkedQueue lets
-                    // those add()s run in parallel instead of one thread waiting for another.
-                    pathsBySize.computeIfAbsent(p.size(), k -> new ConcurrentLinkedQueue<>())
-                            .add(p.path());
-                }
-                case PoisonPill ignored -> {
-                    return;
-                }
-                case ExtensionFileInfo ignored -> throw new IllegalStateException(
-                        "DuplicateLocator received ExtensionFileInfo; its factory() produces only "
-                                + "PathFileInfo");
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+    protected void accept(PathFileInfo p) {
+        pathsBySize.computeIfAbsent(p.size(), k -> new ConcurrentLinkedQueue<>()).add(p.path());
     }
 
     @Override
@@ -226,8 +195,8 @@ public final class DuplicateLocator extends AbstractFileConsumer {
         // Value: the lexicographically first name seen for that inode.
         Map<Object, Path> keptNameByInode = new HashMap<>();
         for (Path p : sameContent) {
-            keptNameByInode.merge(inodeKey(p), p,
-                    (kept, other) -> kept.toString().compareTo(other.toString()) <= 0 ? kept : other);
+            keptNameByInode.merge(inodeKey(p), p, (kept,
+                    other) -> kept.toString().compareTo(other.toString()) <= 0 ? kept : other);
         }
         return new ArrayList<>(keptNameByInode.values());
     }

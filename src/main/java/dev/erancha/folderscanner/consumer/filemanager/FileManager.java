@@ -5,11 +5,9 @@ import dev.erancha.folderscanner.config.SortKey;
 import dev.erancha.folderscanner.config.SortOrder;
 import dev.erancha.folderscanner.consumer.AbstractFileConsumer;
 import dev.erancha.folderscanner.consumer.shell.OutPathResolver;
-import dev.erancha.folderscanner.data.ExtensionFileInfo;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.data.PathFileInfo;
-import dev.erancha.folderscanner.data.PoisonPill;
 import dev.erancha.folderscanner.producer.FileInfoFactory;
 
 import java.io.IOException;
@@ -33,7 +31,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * same soft-quarantine/hard-rm machinery ({@link DeleteScript} over the shared shell primitives)
  * as the duplicates consumer.
  */
-public final class FileManager extends AbstractFileConsumer {
+public final class FileManager extends AbstractFileConsumer<PathFileInfo> {
 
     private final String outPathRaw;
     private final ManageAction action;
@@ -48,7 +46,7 @@ public final class FileManager extends AbstractFileConsumer {
     public FileManager(BlockingQueue<FileInfo> queue, int consumerThreads, String outPathRaw,
             ManageAction action, boolean hardDelete, Path sourceTree, SortKey sortKey,
             SortOrder sortOrder) {
-        super(queue, consumerThreads, "file manager");
+        super(queue, consumerThreads, "file manager", PathFileInfo.class);
         this.outPathRaw = outPathRaw == null ? "" : outPathRaw;
         this.action = action;
         this.hardDelete = hardDelete;
@@ -63,33 +61,9 @@ public final class FileManager extends AbstractFileConsumer {
                 attrs.lastModifiedTime().toMillis());
     }
 
-    /**
-     * Drainer loop: takes messages from the producer queue and records each matched file. Exits on
-     * PoisonPill. Switch is over the sealed FileInfo type, so a future variant becomes a compile
-     * error here; the ExtensionFileInfo arm surfaces a mis-wired producer instead of a silent cast.
-     */
     @Override
-    protected void consume() {
-        try {
-            while (true) {
-                FileInfo f = queue.take();
-                switch (f) {
-                case PathFileInfo p -> {
-                    totalFiles.increment();
-                    totalBytes.add(p.size());
-                    matched.add(p);
-                }
-                case PoisonPill ignored -> {
-                    return;
-                }
-                case ExtensionFileInfo ignored -> throw new IllegalStateException(
-                        "FileManager received ExtensionFileInfo; its factory() produces only "
-                                + "PathFileInfo");
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+    protected void accept(PathFileInfo p) {
+        matched.add(p);
     }
 
     @Override

@@ -55,14 +55,20 @@ final class DuplicateLocatorTest {
     void consume_rejects_wrong_FileInfo_subtype_with_IllegalStateException()
             throws InterruptedException {
         // DuplicateLocator's factory only ever produces PathFileInfo. If a ExtensionFileInfo somehow
-        // reaches consume() (mis-wired factory in a future change), the exhaustive switch must
-        // surface that as a clear configuration bug — not a bare ClassCastException that bubbles
-        // out of a pool thread and silently corrupts the same-size bucketing.
+        // reaches the drain loop (mis-wired factory in a future change), the consumer must surface
+        // that as a clear configuration bug — not a bare ClassCastException that bubbles out of a
+        // pool thread and silently corrupts the same-size bucketing.
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(2);
         DuplicateLocator d = new DuplicateLocator(queue, 1, "", false, Paths.get("/tmp"));
         queue.put(new ExtensionFileInfo("txt", 100L, 0L));
         queue.put(FileInfo.POISON);
-        assertThrows(IllegalStateException.class, d::consume);
+        d.start();
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> d.awaitAndReport(new java.io.PrintStream(java.io.OutputStream.nullOutputStream())));
+        // The guard, not a bare ClassCastException: DrainerPool wraps any drainer death as an
+        // IllegalStateException, so the named cause is what proves the foreign variant was caught.
+        assertTrue(thrown.getCause().getMessage().contains("received ExtensionFileInfo"),
+                "expected the foreign-variant guard message; was " + thrown.getCause());
     }
 
     @Test

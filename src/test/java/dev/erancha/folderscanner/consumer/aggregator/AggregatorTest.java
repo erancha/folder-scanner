@@ -3,6 +3,7 @@ package dev.erancha.folderscanner.consumer.aggregator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Paths;
 import java.time.DayOfWeek;
@@ -149,14 +150,20 @@ final class AggregatorTest {
     @Test
     void consume_rejects_wrong_FileInfo_subtype_with_IllegalStateException() throws InterruptedException {
         // Aggregator's factory only ever produces ExtensionFileInfo. If a PathFileInfo somehow reaches
-        // consume() (mis-wired factory in a future change), the exhaustive switch must surface that
-        // as a clear configuration bug — not a bare ClassCastException that bubbles out of a pool
-        // thread anonymously and silently corrupts the aggregation.
+        // the drain loop (mis-wired factory in a future change), the consumer must surface that as a
+        // clear configuration bug — not a bare ClassCastException that bubbles out of a pool thread
+        // anonymously and silently corrupts the aggregation.
         BlockingQueue<FileInfo> queue = new ArrayBlockingQueue<>(2);
         Aggregator a = new Aggregator(queue, 1);
         queue.put(new PathFileInfo(Paths.get("/tmp/x"), 100L, 0L));
         queue.put(FileInfo.POISON);
-        assertThrows(IllegalStateException.class, a::consume);
+        a.start();
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> a.awaitAndReport(new java.io.PrintStream(java.io.OutputStream.nullOutputStream())));
+        // The guard, not a bare ClassCastException: DrainerPool wraps any drainer death as an
+        // IllegalStateException, so the named cause is what proves the foreign variant was caught.
+        assertTrue(thrown.getCause().getMessage().contains("received PathFileInfo"),
+                "expected the foreign-variant guard message; was " + thrown.getCause());
     }
 
     // ---- byBytesDescending: extension-table display order ------------------
