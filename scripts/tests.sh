@@ -216,9 +216,8 @@ assert_contains "exclude_on_hides_node_modules_file" "$OUT" "Files=5"
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB "$FIXTURE" 2>&1)" || true
 assert_contains "min_size_files_count" "$OUT" "Files=2"
 assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.00 KB): 3 files"
-# The min-size threshold is echoed as an opener line right after Excluding, and
-# the run-level summary (Done / Run stats) now sits in the openers above the
-# detail tables rather than trailing them.
+# The min-size threshold is echoed as an opener line right after Excluding; the
+# run-level summary (Done / Run stats) trails the detail tables.
 assert_contains "min_size_opener_line" "$OUT" "Min size: 1.00 KB"
 # With no extension filter the openers echo the all-extensions sentinel, sitting
 # between Excluding and Min size.
@@ -235,10 +234,10 @@ else
 fi
 DONE_LN="$(printf '%s\n' "$OUT" | grep -n '^Done in ' | head -1 | cut -d: -f1)"
 TABLE_LN="$(printf '%s\n' "$OUT" | grep -n 'By size bucket:' | head -1 | cut -d: -f1)"
-if [ -n "$DONE_LN" ] && [ -n "$TABLE_LN" ] && [ "$DONE_LN" -lt "$TABLE_LN" ]; then
-    ok "done_line_precedes_detail_tables"
+if [ -n "$DONE_LN" ] && [ -n "$TABLE_LN" ] && [ "$TABLE_LN" -lt "$DONE_LN" ]; then
+    ok "detail_tables_precede_done_line"
 else
-    fail "done_line_precedes_detail_tables" "Done at line [$DONE_LN], table at [$TABLE_LN]"
+    fail "detail_tables_precede_done_line" "table at [$TABLE_LN], Done at line [$DONE_LN]"
 fi
 
 # ---- test 10: --file-extensions filters non-matching extensions at the producer -

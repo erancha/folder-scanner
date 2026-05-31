@@ -10,11 +10,9 @@ import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.producer.FolderScanner;
 import com.sun.management.OperatingSystemMXBean;
-import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -117,13 +115,8 @@ public final class Main {
             consumer.start();
             executeScan(out, scanner, consumer, queue, cfg, root, t0);
 
-            // Buffer the consumer's detail tables and the filter tallies so the run-level summary
-            // (Done / Run stats), which is only computable after the scan finishes, can still print
-            // up in the openers — adjacent to the producer/consumer counts — above this detail.
-            ByteArrayOutputStream detailBuf = new ByteArrayOutputStream();
-            PrintStream detail = new PrintStream(detailBuf, true, StandardCharsets.UTF_8);
-            consumer.awaitAndReport(detail);
-            ReportPrinter.printFilterSummary(detail,
+            consumer.awaitAndReport(out);
+            ReportPrinter.printFilterSummary(out,
                     new ReportPrinter.FilterTally(cfg.minSizeBytes(), scanner.filteredBySizeCount(),
                             scanner.filteredBySizeBytes(), cfg.includeExtensions(),
                             scanner.filteredByExtensionCount(), scanner.filteredByExtensionBytes(),
@@ -133,7 +126,6 @@ public final class Main {
             ReportPrinter.printDone(out, elapsedNs / 1_000_000, consumer.totalFilesSeen(),
                     consumer.totalBytesSeen());
             printRunSummary(out, elapsedNs, cpu0);
-            out.print(detailBuf.toString(StandardCharsets.UTF_8));
 
             if (cfg.statsEnabled())
                 printStats(out, queue, t0, cfg.queueSize());
