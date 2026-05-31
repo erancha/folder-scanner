@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for Format. Covers the inverse pair humanBytes/parseSize, the unit
- * roll-up around the 1024 boundary, and the parser's rejection of malformed input.
+ * Unit tests for Format. Covers the inverse pair humanBytes/parseSize, the unit roll-up around the
+ * 1024 boundary, the parser's rejection of malformed input, and the elapsed-time minute rollover.
  */
 final class FormatTest {
 
@@ -44,6 +44,19 @@ final class FormatTest {
         assertEquals("    0 B", Format.humanBytesColumn(0));
         assertEquals("  337 B", Format.humanBytesColumn(337));
         assertEquals(" 1023 B", Format.humanBytesColumn(1023));
+    }
+
+    @Test
+    void formatElapsed_prints_seconds_below_one_minute() {
+        assertEquals("0.0 s", Format.formatElapsed(0));
+        assertEquals("30.0 s", Format.formatElapsed(30_000));
+        assertEquals("59.9 s", Format.formatElapsed(59_900));
+    }
+
+    @Test
+    void formatElapsed_appends_minutes_once_past_one_minute() {
+        assertEquals("60.0 s (1.0 m)", Format.formatElapsed(60_000));
+        assertEquals("90.0 s (1.5 m)", Format.formatElapsed(90_000));
     }
 
     @Test

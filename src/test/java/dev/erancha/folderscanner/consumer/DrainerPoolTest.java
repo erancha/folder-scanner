@@ -78,6 +78,24 @@ final class DrainerPoolTest {
         assertEquals(3, new DrainerPool(3, "test").threadCount());
     }
 
+    @Test
+    void heartbeat_reports_elapsed_in_formatElapsed_style() throws Exception {
+        ListAppender<ILoggingEvent> appender = attachAppenderToPoolLogger();
+        DrainerPool pool = new DrainerPool(1, "slowpoke");
+        pool.start(() -> sleepMillis(150));
+
+        pool.awaitTermination(Duration.ZERO, Duration.ofMillis(20));
+
+        // Heartbeat must route elapsed through Format.formatElapsed (decimal seconds, plus a
+        // "(Y.Y m)" suffix once a drain passes 60s) rather than a bare integer second. The minute
+        // branch is unreachable on this millisecond-scale drain; the decimal-second shape is the
+        // in-test proxy that distinguishes formatElapsed from raw TimeUnit.toSeconds.
+        assertTrue(appender.list.stream().anyMatch(
+                        e -> e.getFormattedMessage().matches(".*still draining after \\d+\\.\\d s.*")),
+                "expected formatElapsed-style elapsed in the heartbeat; saw "
+                        + appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList());
+    }
+
     private static ListAppender<ILoggingEvent> attachAppenderToPoolLogger() {
         Logger poolLogger = (Logger) LoggerFactory.getLogger(DrainerPool.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();

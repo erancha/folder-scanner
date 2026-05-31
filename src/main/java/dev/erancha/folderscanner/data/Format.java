@@ -55,7 +55,8 @@ public final class Format {
      */
     public static long parseSize(String s) {
         if (s == null) return 0;
-        String t = s.trim().toUpperCase();
+        // Locale.ROOT pins case folding so suffix matching never tracks the JVM default locale.
+        String t = s.trim().toUpperCase(java.util.Locale.ROOT);
         if (t.isEmpty()) return 0;
         long mult = 1;
         // TB before B: every unit ends in "B", so the longer suffixes must be tested first.

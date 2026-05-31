@@ -1,5 +1,7 @@
 package dev.erancha.folderscanner.consumer;
 
+import dev.erancha.folderscanner.data.Format;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +28,7 @@ public final class DrainerPool {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DrainerPool.class);
 
-    private static final Duration HEARTBEAT_AFTER = Duration.ofMinutes(10);
+    private static final Duration HEARTBEAT_AFTER = Duration.ofMinutes(5);
     private static final Duration HEARTBEAT_INTERVAL = Duration.ofMinutes(1);
 
     private final ThreadPoolExecutor pool;
@@ -70,8 +72,8 @@ public final class DrainerPool {
         long startNanos = System.nanoTime();
         Duration wait = silentWindow;
         while (!pool.awaitTermination(wait.toMillis(), TimeUnit.MILLISECONDS)) {
-            LOGGER.warn("{} still draining after {}s", consumerName,
-                    TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos));
+            LOGGER.warn("{} still draining after {}", consumerName, Format
+                    .formatElapsed(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos)));
             wait = heartbeatInterval;
         }
         for (Future<?> d : drainers) {
