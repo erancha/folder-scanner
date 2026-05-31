@@ -8,10 +8,10 @@ consumer: `aggregate` keeps only bounded per-bucket aggregates, while `duplicate
 `filemanager` retain one entry per surviving file (O(files)). Three consumers are
 currently available:
 
-- `aggregate` — counts and bytes per extension, size bucket, and date bucket.
-- `duplicates` — finds identical-content files and writes a shell script that
+- `Aggregator` — counts and bytes per extension, size bucket, and date bucket.
+- `Duplicates-locator` — finds identical-content files and writes a shell script that
   quarantines them (or, with `--hard-delete`, removes them outright).
-- `filemanager` — lists (`--action=list`, the default) or deletes
+- `Filemanager` — lists (`--action=list`, the default) or deletes
   (`--action=delete`) the files surviving the producer filters; deletion writes a
   shell script that quarantines them (or, with `--hard-delete`, removes them).
 
