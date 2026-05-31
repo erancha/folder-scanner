@@ -44,10 +44,11 @@ public final class Main {
     private Main() {
     }
 
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         int ncpu = Runtime.getRuntime().availableProcessors();
-        // Last-wins for repeated options: the benchmark harness appends sweep flags after the
-        // forwarded user flags and relies on the later value winning rather than erroring.
+        // benchmarks.sh appends its swept --producers/--consumers after the user's own flags, so an
+        // option can appear twice on the command line; accept the repeat (last value wins) instead
+        // of rejecting it as a duplicate.
         CommandLine cmd = new CommandLine(new Cli()).setOverwrittenOptionsAllowed(true);
         try {
             cmd.parseArgs(args);
@@ -87,7 +88,16 @@ public final class Main {
             return;
         }
 
-        run(cfg, root);
+        try {
+            run(cfg, root);
+        } catch (Exception e) {
+            // Give run()'s failures the same surface as the config-error exits above: one leveled
+            // line + exit 2, not an uncaught stack trace.
+            Throwable cause = e.getCause();
+            LOGGER.error("{}", cause != null ? e.getMessage() + ": " + cause.getMessage()
+                    : e.getMessage());
+            System.exit(2);
+        }
     }
 
     /**
