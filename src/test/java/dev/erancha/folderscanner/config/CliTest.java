@@ -18,7 +18,7 @@ import picocli.CommandLine.ParameterException;
  * Unit tests for the picocli {@link Cli} command and its {@link Cli#toConfig(int)} validation.
  * Mirrors how Main drives the parser: syntax errors (unknown flag, non-integer int, extra
  * positional) surface as picocli {@link ParameterException}s; semantic errors (bad enum, bad
- * size, empty exclude, hard-delete misuse, thread count < 1) aggregate into one
+ * size, hard-delete misuse, thread count < 1) aggregate into one
  * IllegalArgumentException from toConfig.
  */
 final class CliTest {
@@ -152,11 +152,14 @@ final class CliTest {
     }
 
     @Test
-    void empty_exclude_is_rejected() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> parse("--exclude="));
-        assertTrue(ex.getMessage().contains("--exclude is required"),
-                "expected --exclude complaint, got: " + ex.getMessage());
+    void empty_exclude_falls_back_to_git_only() {
+        assertEquals(Set.of(".git"), parse("--exclude=").excludeDirs());
+    }
+
+    @Test
+    void git_is_added_when_user_list_omits_it() {
+        assertEquals(Set.of(".git", "node_modules"),
+                parse("--exclude=node_modules").excludeDirs());
     }
 
     @Test
@@ -293,12 +296,11 @@ final class CliTest {
     void semantic_validation_errors_aggregate_in_one_exception() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> parse("--queue-type=nope", "--consumer=nope", "--min-size=ten",
-                        "--exclude=", "--producers=0"));
+                        "--producers=0"));
         String msg = ex.getMessage();
         assertTrue(msg.contains("queue type"), msg);
         assertTrue(msg.contains("--consumer"), msg);
         assertTrue(msg.contains("--min-size"), msg);
-        assertTrue(msg.contains("--exclude"), msg);
         assertTrue(msg.contains("producers"), msg);
     }
 
