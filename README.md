@@ -8,17 +8,17 @@ consumer: `aggregate` keeps only bounded per-bucket aggregates, while `duplicate
 `filemanager` retain one entry per surviving file (O(files)). Three consumers are
 currently available:
 
-- `Aggregator` — counts and bytes per extension, size bucket, and date bucket.
-- `Duplicates-locator` — finds identical-content files and writes a shell script that
+- `Aggregator` : counts and bytes per extension, size bucket, and date bucket.
+- `Duplicate-Locator` : finds identical-content files and writes a shell script that
   quarantines them (or, with `--hard-delete`, removes them outright).
-- `Filemanager` — lists (`--action=list`, the default) or deletes
+- `File-Manager` : lists (`--action=list`, the default) or deletes
   (`--action=delete`) the files surviving the producer filters; deletion writes a
   shell script that quarantines them (or, with `--hard-delete`, removes them).
 
 ```mermaid
 flowchart LR
     FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
-    Q --> C["Aggregator OR DuplicateLocator OR FileManager<br/><br/>(one selected per run)"]
+    Q --> C["Aggregator OR Duplicate-Locator OR File-Manager<br/><br/>(one selected per run)"]
 ```
 
 The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
