@@ -1,8 +1,5 @@
 package dev.erancha.folderscanner.consumer;
 
-import dev.erancha.folderscanner.data.Format;
-
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -10,9 +7,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Fixed pool of queue-draining workers shared by every FileConsumer.
@@ -25,11 +19,6 @@ import org.slf4j.LoggerFactory;
  * success on an under-counted scan.
  */
 public final class DrainerPool {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(DrainerPool.class);
-
-    private static final Duration HEARTBEAT_AFTER = Duration.ofMinutes(5);
-    private static final Duration HEARTBEAT_INTERVAL = Duration.ofMinutes(1);
 
     private final ThreadPoolExecutor pool;
     private final String consumerName;
@@ -58,24 +47,11 @@ public final class DrainerPool {
 
     /**
      * Blocks until all drainers finish. If a drainer died on an unchecked throw, that throw is
-     * rethrown here with its original cause attached. A drain still running after
-     * {@link #HEARTBEAT_AFTER} logs a periodic heartbeat so a stuck drainer stays observable.
+     * rethrown here with its original cause attached.
      */
     public void awaitTermination() throws InterruptedException {
-        awaitTermination(HEARTBEAT_AFTER, HEARTBEAT_INTERVAL);
-    }
-
-    // package-private so tests can drive sub-second silent windows and heartbeat intervals
-    void awaitTermination(Duration silentWindow, Duration heartbeatInterval)
-            throws InterruptedException {
         pool.shutdown();
-        long startNanos = System.nanoTime();
-        Duration wait = silentWindow;
-        while (!pool.awaitTermination(wait.toMillis(), TimeUnit.MILLISECONDS)) {
-            LOGGER.warn("{} still draining after {}", consumerName, Format
-                    .formatElapsed(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos)));
-            wait = heartbeatInterval;
-        }
+        pool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
         for (Future<?> d : drainers) {
             try {
                 d.get();

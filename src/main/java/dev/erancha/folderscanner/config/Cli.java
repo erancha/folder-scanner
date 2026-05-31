@@ -191,7 +191,7 @@ public final class Cli {
 
                 // Deferred past the error gate so a run that is about to abort stays quiet.
                 if (gitWasAdded) {
-                        LOGGER.info("Excluding .git: a repo's .git is internal and should be hidden from all consumers.");
+                        LOGGER.info("Excluding .git: a repo's .git is internal and should be hidden.");
                 }
 
                 return new Config(queueSizeV, stats, producersV, consumersV, queueType,
