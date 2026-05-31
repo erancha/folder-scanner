@@ -19,7 +19,6 @@ public final class ShellScript {
     private ShellScript() {
     }
 
-    /** {@code #!/usr/bin/env bash} + {@code set -euo pipefail} + a blank line. */
     public static void writeShebang(PrintWriter w) {
         w.println("#!/usr/bin/env bash");
         w.println("set -euo pipefail");

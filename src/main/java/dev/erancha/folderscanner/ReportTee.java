@@ -33,7 +33,6 @@ final class ReportTee implements AutoCloseable {
         this.teeFile = teeFile;
     }
 
-    /** Report stream: the tee when {@code --out} mirrors to a file, otherwise plain stdout. */
     PrintStream out() {
         return out;
     }

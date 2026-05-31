@@ -84,7 +84,6 @@ public final class DuplicateLocator extends AbstractFileConsumer<PathFileInfo> {
             return;
         }
 
-        // Phase 3: write the script for the user to inspect.
         Path scriptPath = OutPathResolver.resolve(outPathRaw, "remove-duplicates.sh");
         try {
             ScriptWriter.write(scriptPath, sourceTree, report, hardDelete);
@@ -97,7 +96,7 @@ public final class DuplicateLocator extends AbstractFileConsumer<PathFileInfo> {
         out.printf("Wrote %s — INSPECT BEFORE RUNNING.%n", scriptPath.toAbsolutePath());
     }
 
-    // Phase 2: confirm size-collisions by hashing (the only phase that reads file content).
+    // The only phase that reads file content.
     private DuplicateReport runPhase2() {
         long t0 = System.nanoTime();
         List<DuplicateReport.Group> confirmed = new ArrayList<>();

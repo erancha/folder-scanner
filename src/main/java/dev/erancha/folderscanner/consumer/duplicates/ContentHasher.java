@@ -20,7 +20,7 @@ public final class ContentHasher {
     /** First page of most filesystems — enough entropy to split nearly all same-size groups. */
     public static final int SMALL_HASH_BYTES = 4 * 1024;
 
-    /** Matches typical FS block size so each read is one syscall. */
+    /** Sized to a typical FS block so reads align to block boundaries. */
     private static final int FULL_READ_BUF = 64 * 1024;
 
     private ContentHasher() {}

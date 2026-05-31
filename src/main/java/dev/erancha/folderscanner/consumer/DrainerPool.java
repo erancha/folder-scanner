@@ -22,10 +22,7 @@ public final class DrainerPool {
 
     private final ThreadPoolExecutor pool;
     private final String consumerName;
-    private final List<Future<?>> drainers = new ArrayList<>(); // One per submitted drainer, each
-                                                                // carrying that drainer's
-                                                                // terminal outcome — including any
-                                                                // unchecked throw
+    private final List<Future<?>> drainers = new ArrayList<>(); // One Future per drainer, carrying its terminal outcome (incl. unchecked throw).
 
     public DrainerPool(int threads, String consumerName) {
         if (threads < 1)
