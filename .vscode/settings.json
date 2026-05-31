@@ -12,6 +12,7 @@
     "basenames",
     "folderscanner",
     "harddelete",
+    "mmdc",
     "NCPU",
     "notypes",
     "Widevine"

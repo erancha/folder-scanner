@@ -11,7 +11,8 @@ set -uo pipefail
 # where the caller launched us from.
 cd "$(dirname "$0")/.."
 HERE="$(pwd)"
-JAR="$HERE/target/folder-scanner-1.0-SNAPSHOT.jar"
+# Glob the shaded jar rather than pin a version: the POM is the single version source.
+JAR=$(echo "$HERE"/target/folder-scanner-*.jar)
 
 usage() {
     cat <<EOF
@@ -134,6 +135,22 @@ EXCLUDE="--exclude=.git,node_modules"
 
 echo "Fixture: $FIXTURE  (6 files total; 5 visible under default EXCLUDE: 3 in LE_1KB incl. one dup pair, 1 in LE_1MB, 1 in LE_20MB; 1 under node_modules/)"
 echo
+
+# ---- test 0: launchers derive the jar name, not pin the POM version ---------
+# Guards the "POM is the single version source" invariant end-to-end: a version
+# bump must not strand the harness on a stale jar name. Reads the version the
+# build resolved into version.properties (the same POM source the CLI reports)
+# and asserts neither launcher hardcodes that version in its jar path. The rest
+# of the suite — which runs the jar through start.sh — proves the derived path
+# actually resolves to the built artifact.
+POMVER="$(sed -n 's/^version=//p' "$HERE/target/classes/version.properties")"
+for launcher in scripts/tests.sh scripts/start.sh; do
+    if grep -q "folder-scanner-$POMVER.jar" "$launcher"; then
+        fail "jar_path_not_version_pinned:$launcher" "literal folder-scanner-$POMVER.jar pins the version"
+    else
+        ok "jar_path_not_version_pinned:$launcher"
+    fi
+done
 
 # ---- test 1: aggregate prints the right total file count -------------------
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate "$FIXTURE" 2>&1)" || true

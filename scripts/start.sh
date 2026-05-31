@@ -3,7 +3,8 @@ set -euo pipefail
 # Resolve project root (this script lives in scripts/) so relative paths anchor to the repo
 cd "$(dirname "$0")/.."
 
-JAR="target/folder-scanner-1.0-SNAPSHOT.jar"
+# Glob the shaded jar rather than pin a version: the POM is the single version source.
+JAR=$(echo target/folder-scanner-*.jar)
 
 # Every run flag is owned by the jar (picocli is the single source of truth). This launcher forwards args verbatim 
 # and holds NO flag knowledge, so a typo here can never silently drop a flag. Full flag list: build, 
