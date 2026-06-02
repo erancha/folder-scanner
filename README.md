@@ -1,5 +1,7 @@
 # folder-scanner
 
+[![CI](https://github.com/erancha/folder-scanner/actions/workflows/ci.yml/badge.svg)](https://github.com/erancha/folder-scanner/actions/workflows/ci.yml)
+
 A CLI utility that walks a directory tree in parallel and feeds every file to a pluggable consumer.
 The producer (scanner) and the consumer run on separate thread pools
 connected by a bounded queue — when the queue fills, the producer blocks, so the
