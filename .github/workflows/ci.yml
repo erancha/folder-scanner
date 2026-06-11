@@ -59,8 +59,9 @@ jobs:
         run: ./scripts/start.sh --build
 
       # gh and GITHUB_TOKEN are preinstalled on the runner, so no third-party action is pinned.
-      # Release notes embed the jar's own --help so the documented flags come from picocli (the
-      # single source of truth) and cannot drift; the generate-notes API supplies the changelog.
+      # Release notes embed the jar's own --help --examples so the documented flags and runnable
+      # examples come from picocli (the single source of truth) and cannot drift; the generate-notes
+      # API supplies the changelog.
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -79,7 +80,7 @@ jobs:
             echo "## Options"
             echo
             echo '```'
-            java -jar "$jar" --help
+            java -jar "$jar" --help --examples
             echo '```'
             echo
             echo "## Changes"
