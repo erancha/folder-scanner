@@ -39,13 +39,17 @@ final class ReportTee implements AutoCloseable {
 
     /** True for the consumers whose primary output is a stdout report that {@code --out} mirrors. */
     static boolean tees(ConsumerKind kind, ManageAction action) {
-        return kind == ConsumerKind.AGGREGATE
+        return kind == ConsumerKind.AGGREGATE || kind == ConsumerKind.FOLDERS
                 || (kind == ConsumerKind.FILEMANAGER && action == ManageAction.LIST);
     }
 
-    /** Auto-name whose prefix distinguishes the aggregate report from the file-list report. */
+    /** Auto-name whose prefix distinguishes which report consumer wrote the mirrored file. */
     static String autoName(ConsumerKind kind, String timestamp) {
-        String prefix = kind == ConsumerKind.AGGREGATE ? "aggregator-" : "file-list-";
+        String prefix = switch (kind) {
+        case AGGREGATE -> "aggregator-";
+        case FOLDERS -> "folder-sizes-";
+        default -> "file-list-";
+        };
         return prefix + timestamp + ".out";
     }
 

@@ -18,13 +18,18 @@ import picocli.CommandLine.Parameters;
  * applies the semantic rules and aggregates their failures into one message. The launcher scripts
  * forward args verbatim and hold no flag knowledge, so this class is the single source of truth.
  */
-@Command(name = "folder-scanner", mixinStandardHelpOptions = true, versionProvider = VersionProvider.class, sortOptions = false, usageHelpWidth = 100, description = "Concurrently scan a directory tree and either aggregate files by "
-                + "extension/size/date, locate duplicate content, or list/delete matching files.")
+@Command(name = "<folder-scanner>", mixinStandardHelpOptions = true, versionProvider = VersionProvider.class, sortOptions = false, usageHelpWidth = 120, description = "Concurrently scan a directory tree and either aggregate files by "
+                + "extension/size/date, locate duplicate content, list/delete matching files, or rank folders by "
+                + "recursive size and report day-over-day growth.")
 public final class Cli {
 
         private static final Logger LOGGER = LoggerFactory.getLogger(Cli.class);
 
         private static final String GIT_DIR = ".git";
+
+        // Default --min-size-recursive for the folders consumer: below this, subtrees are noise that
+        // buries the ranking. Overridable per run, including =0 to list every folder.
+        private static final long DEFAULT_MIN_SIZE_RECURSIVE_BYTES = 10L * 1024 * 1024;
 
         // Field order is the --help option-list order (sortOptions = false): general knobs, then
         // the
@@ -34,12 +39,13 @@ public final class Cli {
 
         // Each description element is one clause sized to fit the help's description column at
         // width
-        // 100, so picocli breaks between clauses rather than mid-sentence.
+        // 120, so picocli breaks between clauses rather than mid-sentence.
 
         // --- General ---
         @Option(names = "--out", paramLabel = "PATH", description = {
                         "Mirror output to PATH (omitted = stdout only).",
                         "Aggregate: the report; a dir or trailing '/' auto-names aggregator-*.out.",
+                        "Folders: the report; auto-names folder-sizes-*.out.",
                         "Filemanager --action=list: the listing; auto-names file-list-*.out.",
                         "Duplicates / filemanager --action=delete: where to write the .sh." })
         String outPath = "";
@@ -47,6 +53,10 @@ public final class Cli {
         @Option(names = "--stats", description = {
                         "Per-second thread, heap, and queue-depth snapshot during the scan." })
         boolean stats;
+
+        @Option(names = "--examples", description = {
+                        "With --help, append a worked example for each consumer to the usage text." })
+        boolean examples;
 
         @Option(names = "--log-level", paramLabel = "L", description = {
                         "Logback root level (default INFO).",
@@ -79,7 +89,8 @@ public final class Cli {
         @Option(names = "--consumer", paramLabel = "NAME", description = {
                         "Consumer pipeline. aggregate (default): by-extension/size/date tables.",
                         "duplicates: emit a script that quarantines or deletes redundant copies.",
-                        "filemanager: list or delete the files surviving the producer filters." })
+                        "filemanager: list or delete the files surviving the producer filters.",
+                        "folders: rank folders by recursive subtree size, largest first." })
         String consumerRaw = "aggregate";
 
         @Option(names = "--consumers", paramLabel = "N", description = {
@@ -113,6 +124,23 @@ public final class Cli {
                         "Default: path ascends; date and size lead with newest/largest first." })
         String orderRaw;
 
+        // null = flag absent, so misuse with a non-folders consumer can be rejected; absent maps to
+        // 0 (every folder listed).
+        @Option(names = "--min-size-recursive", paramLabel = "SIZE", description = {
+                        "Folders consumer: omit folders whose recursive subtree is smaller than SIZE.",
+                        "Same 1024-based syntax as --min-size (e.g. 50MB). Default 10MB; pass 0 for all folders." })
+        String minSizeRecursiveRaw;
+
+        @Option(names = "--baseline", paramLabel = "PATH", description = {
+                        "Folders consumer: diff this run against the snapshot at PATH and report growth.",
+                        "Missing on first use; written after each run, so the next run compares to today." })
+        String baselinePath = "";
+
+        @Option(names = "--growth-threshold", paramLabel = "PCT", description = {
+                        "Folders consumer with --baseline: report folders that grew more than PCT percent.",
+                        "Default 10." })
+        String growthThresholdRaw;
+
         // --- Bounded queue between producers and consumers ---
         @Option(names = "--queue-type", paramLabel = "T", description = {
                         "Bounded-queue impl (default abq).",
@@ -131,6 +159,44 @@ public final class Cli {
         /** Logback root level requested via {@code --log-level}, defaulting to INFO. */
         public String logLevel() {
                 return logLevel;
+        }
+
+        /** Whether {@code --examples} was passed; Main prints {@link #examplesText()} and exits. */
+        public boolean examples() {
+                return examples;
+        }
+
+        /**
+         * Worked one-liner per consumer, shown by {@code --examples}. Kept here beside the flag
+         * help so the user-facing CLI text stays in this single owner rather than drifting into a
+         * script.
+         */
+        public static String examplesText() {
+                return """
+                                Examples (replace <folder-scanner> with the jar, e.g. java -jar target/folder-scanner-*.jar,
+                                or ./scripts/start.sh; the scan target defaults to the current directory):
+
+                                  # A reusable exclude list for scanning a WSL -> Windows drive; every example reuses it.
+                                  EXCLUDE="Windows,ProgramData,Program Files,Program Files (x86),\\$Recycle.Bin,System Volume Information,workspaceStorage,extensions,.idea,.git,node_modules,target,.mvn,build,dist,.gradle,bin,EBWebView,WebviewCacheX64,ebview2_user_data,cef_cache,WidevineCdm,component_crx_cache,AmazonQ,puppeteer,.nuget,Adobe,AzureFunctionsTools,CSharpier,Windsurf,ws-browser,Postman-Agent,DBeaverData,Chrome,Old Firefox Data"
+
+                                  # Aggregate by extension, size, and date (the default consumer)
+                                  <folder-scanner> --exclude="$EXCLUDE" /mnt/c
+
+                                  # Rank folders by recursive subtree size, largest first, only folders >= 100MB
+                                  <folder-scanner> --consumer=folders --exclude="$EXCLUDE" --min-size-recursive=100MB /mnt/c
+
+                                  # Daily growth check: diff against the saved snapshot, flag folders that grew > 10%
+                                  <folder-scanner> --consumer=folders --exclude="$EXCLUDE" --baseline=folder-sizes.tsv /mnt/c
+
+                                  # Locate duplicate-content files and write a script that quarantines the copies
+                                  <folder-scanner> --consumer=duplicates --exclude="$EXCLUDE" --min-size=1MB /mnt/c
+
+                                  # List the tmp/log files that are at least 10MB
+                                  <folder-scanner> --consumer=filemanager --exclude="$EXCLUDE" --file-extensions=tmp,log --min-size=10MB /mnt/c
+
+                                  # Write a script to quarantine every tmp file
+                                  <folder-scanner> --consumer=filemanager --exclude="$EXCLUDE" --action=delete --file-extensions=tmp /mnt/c
+                                """;
         }
 
         /**
@@ -180,6 +246,40 @@ public final class Cli {
                         errors.add("Invalid --min-size: " + e.getMessage());
                 }
 
+                // Only the folders consumer reads this; others stay at 0 so their header omits the line.
+                long minSizeRecursiveBytes = consumerKind == ConsumerKind.FOLDERS
+                                ? DEFAULT_MIN_SIZE_RECURSIVE_BYTES
+                                : 0L;
+                if (minSizeRecursiveRaw != null) {
+                        try {
+                                minSizeRecursiveBytes = Format.parseSize(minSizeRecursiveRaw);
+                        } catch (IllegalArgumentException e) {
+                                errors.add("Invalid --min-size-recursive: " + e.getMessage());
+                        }
+                }
+                if (consumerKind != ConsumerKind.FOLDERS && minSizeRecursiveRaw != null) {
+                        errors.add("--min-size-recursive only applies with --consumer=folders");
+                }
+
+                boolean baselineSet = !baselinePath.isEmpty();
+                if (baselineSet && consumerKind != ConsumerKind.FOLDERS) {
+                        errors.add("--baseline only applies with --consumer=folders");
+                }
+                double growthThresholdPct = 10.0;
+                if (growthThresholdRaw != null) {
+                        if (!baselineSet) {
+                                errors.add("--growth-threshold requires --baseline");
+                        }
+                        try {
+                                growthThresholdPct = Double.parseDouble(growthThresholdRaw.trim());
+                                if (growthThresholdPct < 0) {
+                                        errors.add("--growth-threshold must be >= 0");
+                                }
+                        } catch (NumberFormatException e) {
+                                errors.add("Invalid --growth-threshold: " + growthThresholdRaw);
+                        }
+                }
+
                 FileExtensions.IncludeSet includeExtensions = FileExtensions.parse(fileExtRaw);
 
                 Set<String> excludeDirs = parseExcludeDirs(excludeRaw);
@@ -196,7 +296,8 @@ public final class Cli {
 
                 return new Config(queueSizeV, stats, producersV, consumersV, queueType,
                                 consumerKind, action, sortKey, sortOrder, outPath, hardDelete,
-                                minSizeBytes, excludeDirs, includeExtensions, target);
+                                minSizeBytes, minSizeRecursiveBytes, baselinePath,
+                                growthThresholdPct, excludeDirs, includeExtensions, target);
         }
 
         private static Set<String> parseExcludeDirs(String raw) {

@@ -277,6 +277,74 @@ assert_exit_code "runtime_write_failure_exits_2" "2" "$?"
 assert_contains "runtime_write_failure_leveled_message" "$WRITE_ERR" "failed to write"
 assert_not_contains "runtime_write_failure_no_stack_trace" "$WRITE_ERR" "Exception in thread"
 
+# ---- test 16: folders consumer ranks subtrees and echoes the recursive threshold -
+# Recursive subtree bytes under default EXCLUDE: unique/ (~1.05 MB) is the only folder
+# besides the scan root that clears a 1MB --min-size-recursive; small/ (30 B) and medium/
+# (~2 KB) are dropped. The root is always shown and, holding everything, ranks first. The
+# threshold is echoed in the scan header on its own line, only for this consumer.
+OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=folders --min-size-recursive=1MB "$FIXTURE" 2>&1)" || true
+assert_contains "folders_header_echoes_recursive_threshold" "$OUT" "Min size recursive: 1.00 MB"
+UNIQUE_ROW="$(printf '%s\n' "$OUT" | grep -E "[[:space:]]$FIXTURE/unique$" || true)"
+assert_contains "folders_lists_large_subtree" "$UNIQUE_ROW" "$FIXTURE/unique"
+MEDIUM_ROW="$(printf '%s\n' "$OUT" | grep -E "[[:space:]]$FIXTURE/medium$" || true)"
+assert_eq "folders_drops_subtree_below_threshold" "" "$MEDIUM_ROW"
+# The scan root holds every file, so it ranks above the unique/ subtree it contains.
+ROOT_LN="$(printf '%s\n' "$OUT" | grep -nE "[[:space:]]$FIXTURE$" | head -1 | cut -d: -f1)"
+UNIQUE_LN="$(printf '%s\n' "$OUT" | grep -nE "[[:space:]]$FIXTURE/unique$" | head -1 | cut -d: -f1)"
+if [ -n "$ROOT_LN" ] && [ -n "$UNIQUE_LN" ] && [ "$ROOT_LN" -lt "$UNIQUE_LN" ]; then
+    ok "folders_root_outranks_its_descendant"
+else
+    fail "folders_root_outranks_its_descendant" "root at [$ROOT_LN], unique at [$UNIQUE_LN]"
+fi
+# The recursive-threshold line is folders-only: the aggregate header must not carry it.
+AGG_OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate "$FIXTURE" 2>&1)" || true
+assert_not_contains "non_folders_header_omits_recursive_threshold" "$AGG_OUT" "Min size recursive:"
+
+# ---- test 17: folders --baseline reports day-over-day growth and new folders ----
+# A dedicated tree with two ~100KB subtrees. Run 1 seeds the baseline (nothing to compare).
+# Before run 2: grower/ gains 50%, stable/ is untouched, and a brand-new fresh/ subtree appears.
+# Run 2 must flag grower/ in the growth section, leave stable/ out of it, and list fresh/ in its
+# own "New folders" section (a new subtree has no growth percentage, so it would otherwise vanish).
+GROWTH_ROOT="$SCRATCH/growth"
+mkdir -p "$GROWTH_ROOT/grower" "$GROWTH_ROOT/stable"
+head -c 100000 /dev/urandom > "$GROWTH_ROOT/grower/g.bin"
+head -c 100000 /dev/urandom > "$GROWTH_ROOT/stable/s.bin"
+BASELINE="$SCRATCH/baseline.tsv"
+# --min-size-recursive=0 so the ~100KB fixture folders are tracked despite the 10MB default.
+OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE" "$GROWTH_ROOT" 2>&1)" || true
+assert_contains "folders_baseline_first_run_seeds" "$OUT" "no prior baseline to compare"
+if [ -f "$BASELINE" ]; then ok "folders_baseline_file_written"
+else fail "folders_baseline_file_written" "expected $BASELINE to be written"; fi
+
+head -c 50000 /dev/urandom >> "$GROWTH_ROOT/grower/g.bin"   # grower/ +50%, stable/ unchanged
+mkdir -p "$GROWTH_ROOT/fresh"                               # fresh/ is absent from the baseline
+head -c 100000 /dev/urandom > "$GROWTH_ROOT/fresh/n.bin"
+OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE" "$GROWTH_ROOT" 2>&1)" || true
+# Scope each section: growth is between its header and the "New folders" header; new is from there on.
+GROWTH_SECTION="$(printf '%s\n' "$OUT" | sed -n '/Folder growth since/,/New folders since/p')"
+NEW_SECTION="$(printf '%s\n' "$OUT" | sed -n '/New folders since/,$p')"
+assert_contains "folders_growth_section_present" "$OUT" "Folder growth since"
+assert_contains "folders_growth_lists_grown_folder" "$GROWTH_SECTION" "$GROWTH_ROOT/grower"
+assert_not_contains "folders_growth_omits_stable_folder" "$GROWTH_SECTION" "$GROWTH_ROOT/stable"
+assert_not_contains "folders_growth_omits_new_folder" "$GROWTH_SECTION" "$GROWTH_ROOT/fresh"
+assert_contains "folders_new_section_present" "$OUT" "New folders since"
+assert_contains "folders_new_section_lists_fresh_folder" "$NEW_SECTION" "$GROWTH_ROOT/fresh"
+
+# ---- test 18: --examples is a --help modifier; the example block requires --help ----
+# --help --examples shows usage plus the per-consumer block.
+OUT="$(./scripts/start.sh --help --examples 2>&1)"
+assert_exit_code "help_examples_exits_0" "0" "$?"
+assert_contains "help_examples_block_header" "$OUT" "Examples ("
+assert_contains "help_examples_covers_folders" "$OUT" "--consumer=folders"
+assert_contains "help_examples_covers_baseline_growth" "$OUT" "--baseline"
+# Plain --help stays concise: the block is opt-in.
+HELP_OUT="$(./scripts/start.sh --help 2>&1)"
+assert_not_contains "help_alone_omits_examples" "$HELP_OUT" "Examples ("
+# --examples without --help is misuse: no scan runs, exit 2, no block printed.
+ALONE="$(./scripts/start.sh --examples 2>&1)"
+assert_exit_code "examples_without_help_exits_2" "2" "$?"
+assert_not_contains "examples_without_help_no_block" "$ALONE" "Examples ("
+
 echo
 echo "----------------------------------------"
 echo "Passed: $PASS    Failed: $FAIL"

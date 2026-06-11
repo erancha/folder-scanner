@@ -6,6 +6,7 @@ import dev.erancha.folderscanner.consumer.FileConsumer;
 import dev.erancha.folderscanner.consumer.aggregator.Aggregator;
 import dev.erancha.folderscanner.consumer.duplicates.DuplicateLocator;
 import dev.erancha.folderscanner.consumer.filemanager.FileManager;
+import dev.erancha.folderscanner.consumer.folders.FolderSizeReporter;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.producer.FolderScanner;
@@ -58,16 +59,28 @@ public final class Main {
             System.exit(2);
             return;
         }
+        Cli cli = cmd.getCommand();
         if (cmd.isUsageHelpRequested()) {
             cmd.usage(System.out);
+            if (cli.examples()) {
+                System.out.println();
+                System.out.print(Cli.examplesText());
+            }
             return;
         }
         if (cmd.isVersionHelpRequested()) {
             cmd.printVersionHelp(System.out);
             return;
         }
+        // --examples is a --help modifier, not a standalone command; alone it would otherwise fall
+        // through into a real scan, so reject it with the same leveled-error-plus-exit-2 contract as
+        // other flag misuse.
+        if (cli.examples()) {
+            LOGGER.error("--examples must be combined with --help");
+            System.exit(2);
+            return;
+        }
 
-        Cli cli = cmd.getCommand();
         applyLogLevel(cli.logLevel());
 
         Config cfg;
@@ -163,6 +176,8 @@ public final class Main {
                 cfg.hardDelete(), root);
         case FILEMANAGER -> new FileManager(queue, cfg.consumers(), cfg.outPath(), cfg.action(),
                 cfg.hardDelete(), root, cfg.sortKey(), cfg.sortOrder());
+        case FOLDERS -> new FolderSizeReporter(queue, cfg.consumers(), root,
+                cfg.minSizeRecursiveBytes(), cfg.baselinePath(), cfg.growthThresholdPct());
         };
     }
 
@@ -173,6 +188,9 @@ public final class Main {
         out.printf("Excluding directories: %s%n", String.join(", ", cfg.excludeDirs()));
         out.printf("Extensions: %s%n", cfg.includeExtensions().displayList());
         out.printf("Min size: %s%n", Format.humanBytes(cfg.minSizeBytes()));
+        if (cfg.minSizeRecursiveBytes() > 0) {
+            out.printf("Min size recursive: %s%n", Format.humanBytes(cfg.minSizeRecursiveBytes()));
+        }
     }
 
     /**

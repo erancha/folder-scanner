@@ -13,7 +13,7 @@ JAR=$(echo target/folder-scanner-*.jar)
 case "${1:-}" in
     --build)
         # Always clean: a stale jar from a prior version must never shadow new code.
-        exec mvn -q clean package ;;
+        exec mvn clean package ;;
     --mermaid)
         # Undocumented dev helper: render the README's mermaid block to data-flow.png via mermaid-cli.
         tmp="$(mktemp --suffix=.mmd)"

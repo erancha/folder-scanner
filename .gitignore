@@ -5,3 +5,6 @@ trash/
 remove-duplicates.sh
 scripts/benchmarks.dat
 .claude/settings.local.json
+folder-sizes.tsv
+scripts/folders-growth.sh
+delete-files.sh

@@ -11,5 +11,6 @@ import java.util.Set;
 public record Config(int queueSize, boolean statsEnabled, int producers, int consumers,
         QueueType queueType, ConsumerKind consumerKind, ManageAction action, SortKey sortKey,
         SortOrder sortOrder, String outPath, boolean hardDelete, long minSizeBytes,
+        long minSizeRecursiveBytes, String baselinePath, double growthThresholdPct,
         Set<String> excludeDirs, FileExtensions.IncludeSet includeExtensions, String target) {
 }

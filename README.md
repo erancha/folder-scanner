@@ -6,9 +6,9 @@ A CLI utility that walks a directory tree in parallel and feeds every file to a 
 The producer (scanner) and the consumer run on separate thread pools
 connected by a bounded queue — when the queue fills, the producer blocks, so the
 in-flight buffer stays flat regardless of tree size. Total heap then depends on the
-consumer: `aggregate` keeps only bounded per-bucket aggregates, while `duplicates` and
-`filemanager` retain one entry per surviving file (O(files)). Three consumers are
-currently available:
+consumer: `aggregate` and `folders` keep only bounded aggregates (O(buckets) and
+O(folders)), while `duplicates` and `filemanager` retain one entry per surviving file
+(O(files)). Four consumers are currently available:
 
 - `Aggregator` : counts and bytes per extension, size bucket, and date bucket.
 - `Duplicate-Locator` : finds identical-content files and writes a shell script that
@@ -16,11 +16,15 @@ currently available:
 - `File-Manager` : lists (`--action=list`, the default) or deletes
   (`--action=delete`) the files surviving the producer filters; deletion writes a
   shell script that quarantines them (or, with `--hard-delete`, removes them).
+- `Folder-Size-Reporter` : ranks folders by recursive subtree size, largest first, collapsing
+  single-child pass-through chains to one row; with `--baseline=PATH` it also diffs against a saved
+  snapshot to flag day-over-day growth.
 
 ```mermaid
+%%{init: {'flowchart': {'wrappingWidth': 300}}}%%
 flowchart LR
     FS["FolderScanner<br/><br/>(producer)"] --> Q[/"BlockingQueue&lt;FileInfo&gt;<br/><br/>(bounded)"/]
-    Q --> C["Aggregator OR Duplicate-Locator OR File-Manager<br/><br/>(one selected per run)"]
+    Q --> C["Aggregator OR Duplicate-Locator OR File-Manager OR Folder-Size-Reporter<br/><br/>(one selected per run)"]
 ```
 
 The scanner (producer) is agnostic of which consumer it feeds. Exactly one consumer
@@ -30,17 +34,12 @@ details live in their source files.
 
 ## Quick start
 
-Requires Java 21 and Maven on PATH.
+Requires Java 21 and Maven on PATH. Build once, then run:
 
 ```bash
-./scripts/start.sh --build                                                 # one-time: mvn clean package
-./scripts/start.sh --exclude=.git,target                                   # aggregates the current folder
-./scripts/start.sh --consumer=duplicates --exclude=.git,target /mnt/c      # locates duplicates in /mnt/c
-./scripts/start.sh --consumer=filemanager --file-extensions=tmp,log \
-  --min-size=10MB --exclude=.git,target /mnt/c                             # lists large tmp/log files
-./scripts/start.sh --consumer=filemanager --action=delete \
-  --file-extensions=tmp --exclude=.git,target /mnt/c                       # writes a script to quarantine them
-./scripts/start.sh --help                                                  # all flags
+./scripts/start.sh --build            # one-time: mvn clean package
+./scripts/start.sh --help             # list every flag
+./scripts/start.sh --help --examples  # examples
 ```
 
 **Producer-side filters**
@@ -48,18 +47,6 @@ Requires Java 21 and Maven on PATH.
 `--exclude=LIST`, `--min-size=SIZE`, and `--file-extensions=LIST` are producer-side filters — filtered-out entries
 never enter the bounded queue. `--exclude` is the cheapest because it short-circuits whole subtrees before any
 directory listing; the other two cost one attribute check per file.
-
-**Recommended exclude list** for `/mnt/c` (WSL → Windows drive)
-
-```bash
-./scripts/start.sh --consumer=duplicates --min-size=1MB --hard-delete \
-  --exclude="Windows,ProgramData,Program Files,Program Files (x86),\$Recycle.Bin,System Volume Information,\
-workspaceStorage,extensions,.idea,\
-.git,node_modules,target,.mvn,build,dist,.gradle,bin,\
-EBWebView,WebviewCacheX64,webview2_user_data,cef_cache,WidevineCdm,component_crx_cache,\
-AmazonQ,puppeteer,.nuget" \
-  /mnt/c
-```
 
 **Runtime knobs**
 

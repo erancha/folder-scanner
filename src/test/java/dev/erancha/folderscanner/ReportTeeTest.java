@@ -25,8 +25,8 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Pins the tee decision and auto-naming that used to be inlined in Main.run(). Only the consumers
  * whose primary output is a stdout report mirror it to --out; the script-emitting modes resolve
- * --out themselves and must not tee. The auto-name prefix is what disambiguates the two report
- * files on disk, so it is held stable here.
+ * --out themselves and must not tee. The auto-name prefix is what disambiguates the report files
+ * on disk, so it is held stable here.
  */
 final class ReportTeeTest {
 
@@ -42,6 +42,11 @@ final class ReportTeeTest {
     }
 
     @Test
+    void folders_tees_its_stdout_report() {
+        assertTrue(ReportTee.tees(ConsumerKind.FOLDERS, null));
+    }
+
+    @Test
     void script_emitting_duplicates_mode_does_not_tee() {
         assertFalse(ReportTee.tees(ConsumerKind.DUPLICATES, null));
     }
@@ -51,7 +56,7 @@ final class ReportTeeTest {
             throws IOException {
         Path outFile = dir.resolve("aggregate-report.out");
         Config cfg = new Config(1024, false, 1, 1, QueueType.LBQ, ConsumerKind.AGGREGATE, null,
-                SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, Set.of(),
+                SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, 0L, "", 10.0, Set.of(),
                 FileExtensions.IncludeSet.ALL, ".");
 
         PrintStream realOut = System.out;
@@ -76,10 +81,12 @@ final class ReportTeeTest {
     }
 
     @Test
-    void auto_name_prefix_distinguishes_the_two_report_files() {
+    void auto_name_prefix_distinguishes_the_report_files() {
         assertEquals("aggregator-20260529-101500.out",
                 ReportTee.autoName(ConsumerKind.AGGREGATE, "20260529-101500"));
         assertEquals("file-list-20260529-101500.out",
                 ReportTee.autoName(ConsumerKind.FILEMANAGER, "20260529-101500"));
+        assertEquals("folder-sizes-20260529-101500.out",
+                ReportTee.autoName(ConsumerKind.FOLDERS, "20260529-101500"));
     }
 }

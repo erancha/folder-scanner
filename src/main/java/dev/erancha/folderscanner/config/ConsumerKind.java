@@ -2,7 +2,7 @@ package dev.erancha.folderscanner.config;
 
 /** Which consumer pipeline runs against the scanned files. */
 public enum ConsumerKind {
-    AGGREGATE, DUPLICATES, FILEMANAGER;
+    AGGREGATE, DUPLICATES, FILEMANAGER, FOLDERS;
 
     public String cliName() {
         return name().toLowerCase();
@@ -18,9 +18,10 @@ public enum ConsumerKind {
         case "aggregate": return AGGREGATE;
         case "duplicates": return DUPLICATES;
         case "filemanager": return FILEMANAGER;
+        case "folders": return FOLDERS;
         default:
             errors.add("Unknown --consumer: " + raw
-                    + " (expected aggregate, duplicates or filemanager)");
+                    + " (expected aggregate, duplicates, filemanager or folders)");
             return AGGREGATE;
         }
     }

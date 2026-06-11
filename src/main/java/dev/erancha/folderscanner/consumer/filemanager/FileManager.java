@@ -25,11 +25,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * --file-extensions), making those filters actionable.
  *
  * Single phase: drainer threads record each file's path/size/modified time as it arrives — the
- * per-message work is tiny but high-frequency, so multiple drainers keep the producer's
- * queue.put() from blocking. After POISON, awaitAndReport either prints the listing
- * (--action=list) or writes an inspect-before-run deletion script (--action=delete), reusing the
- * same soft-quarantine/hard-rm machinery ({@link DeleteScript} over the shared shell primitives)
- * as the duplicates consumer.
+ * per-message work is tiny but high-frequency, so multiple drainers keep the producer's queue.put()
+ * from blocking. After POISON, awaitAndReport either prints the listing (--action=list) or writes
+ * an inspect-before-run deletion script (--action=delete), reusing the same soft-quarantine/hard-rm
+ * machinery ({@link DeleteScript} over the shared shell primitives) as the duplicates consumer.
  */
 public final class FileManager extends AbstractFileConsumer<PathFileInfo> {
 
@@ -80,7 +79,7 @@ public final class FileManager extends AbstractFileConsumer<PathFileInfo> {
     // Column widths used while a column precedes others, so the next column starts at a fixed
     // offset; a path long enough to overflow PATH_COLUMN_WIDTH pushes the rest right rather than
     // truncating. The variable-length path is placed last for date/size sorts and needs no width.
-    private static final int PATH_COLUMN_WIDTH = 125;
+    private static final int PATH_COLUMN_WIDTH = 160;
     private static final int SIZE_COLUMN_WIDTH = 8; // widest humanBytesColumn cell, e.g. "999.9 KB"
 
     private Comparator<PathFileInfo> listingComparator() {

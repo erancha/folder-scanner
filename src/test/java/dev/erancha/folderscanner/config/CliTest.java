@@ -52,6 +52,7 @@ final class CliTest {
         assertEquals("", cfg.outPath());
         assertFalse(cfg.hardDelete());
         assertEquals(0L, cfg.minSizeBytes());
+        assertEquals(0L, cfg.minSizeRecursiveBytes());
         assertEquals(Set.of(".git"), cfg.excludeDirs());
         assertTrue(cfg.includeExtensions().isAll());
         assertEquals(".", cfg.target());
@@ -293,6 +294,91 @@ final class CliTest {
     }
 
     @Test
+    void folders_consumer_defaults_min_size_recursive_to_10mb() {
+        Config cfg = parse("--consumer=folders");
+        assertEquals(ConsumerKind.FOLDERS, cfg.consumerKind());
+        assertEquals(10L * 1024 * 1024, cfg.minSizeRecursiveBytes());
+    }
+
+    @Test
+    void min_size_recursive_zero_opts_back_into_listing_every_folder() {
+        assertEquals(0L,
+                parse("--consumer=folders", "--min-size-recursive=0").minSizeRecursiveBytes());
+    }
+
+    @Test
+    void min_size_recursive_parses_for_folders_consumer() {
+        Config cfg = parse("--consumer=folders", "--min-size-recursive=50MB");
+        assertEquals(ConsumerKind.FOLDERS, cfg.consumerKind());
+        assertEquals(50L * 1024 * 1024, cfg.minSizeRecursiveBytes());
+    }
+
+    @Test
+    void min_size_recursive_with_a_non_folders_consumer_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--min-size-recursive=50MB"));
+        assertTrue(ex.getMessage().contains("--min-size-recursive only applies"),
+                "expected --min-size-recursive misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void invalid_min_size_recursive_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--min-size-recursive=ten gigs"));
+        assertTrue(ex.getMessage().contains("--min-size-recursive"),
+                "expected --min-size-recursive complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void baseline_parses_for_folders_consumer_with_growth_threshold_defaulting_to_ten() {
+        Config cfg = parse("--consumer=folders", "--baseline=/tmp/base.tsv");
+        assertEquals("/tmp/base.tsv", cfg.baselinePath());
+        assertEquals(10.0, cfg.growthThresholdPct());
+    }
+
+    @Test
+    void explicit_growth_threshold_round_trips_with_baseline() {
+        Config cfg = parse("--consumer=folders", "--baseline=/tmp/base.tsv",
+                "--growth-threshold=25");
+        assertEquals("/tmp/base.tsv", cfg.baselinePath());
+        assertEquals(25.0, cfg.growthThresholdPct());
+    }
+
+    @Test
+    void baseline_with_a_non_folders_consumer_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--baseline=/tmp/base.tsv"));
+        assertTrue(ex.getMessage().contains("--baseline only applies"),
+                "expected --baseline misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void growth_threshold_without_baseline_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--growth-threshold=25"));
+        assertTrue(ex.getMessage().contains("--growth-threshold requires --baseline"),
+                "expected --growth-threshold misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void negative_growth_threshold_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--baseline=/tmp/base.tsv",
+                        "--growth-threshold=-5"));
+        assertTrue(ex.getMessage().contains("--growth-threshold"),
+                "expected --growth-threshold complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void non_numeric_growth_threshold_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--baseline=/tmp/base.tsv",
+                        "--growth-threshold=lots"));
+        assertTrue(ex.getMessage().contains("--growth-threshold"),
+                "expected --growth-threshold complaint, got: " + ex.getMessage());
+    }
+
+    @Test
     void semantic_validation_errors_aggregate_in_one_exception() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> parse("--queue-type=nope", "--consumer=nope", "--min-size=ten",
@@ -307,6 +393,55 @@ final class CliTest {
     @Test
     void include_set_all_singleton_is_reused_when_no_filter_is_set() {
         assertSame(parse().includeExtensions(), parse().includeExtensions());
+    }
+
+    @Test
+    void examples_flag_parses_as_a_boolean_and_defaults_off() {
+        Cli on = new Cli();
+        commandLine(on).parseArgs("--examples");
+        assertTrue(on.examples());
+
+        Cli off = new Cli();
+        commandLine(off).parseArgs();
+        assertFalse(off.examples());
+    }
+
+    @Test
+    void examples_text_shows_an_example_for_every_consumer() {
+        String ex = Cli.examplesText();
+        assertTrue(ex.toLowerCase().contains("aggregate"), "aggregate example missing");
+        assertTrue(ex.contains("--consumer=duplicates"), "duplicates example missing");
+        assertTrue(ex.contains("--consumer=filemanager"), "filemanager example missing");
+        assertTrue(ex.contains("--consumer=folders"), "folders example missing");
+        assertTrue(ex.contains("--baseline"), "growth-baseline example missing");
+    }
+
+    @Test
+    void examples_define_the_exclude_list_once_and_reuse_it() {
+        String ex = Cli.examplesText();
+        assertTrue(ex.contains("EXCLUDE="), "exclude list should be assigned to a shell variable");
+        assertTrue(ex.contains("--exclude=\"$EXCLUDE\""),
+                "every example should reference the EXCLUDE variable, not re-type the list");
+        // The long literal list must appear exactly once (defined, then referenced), not per command.
+        assertEquals(1, ex.split("ProgramData", -1).length - 1,
+                "the exclude list must be declared once, not duplicated across examples");
+    }
+
+    @Test
+    void usage_synopsis_uses_the_placeholder_command_name() {
+        StringWriter sink = new StringWriter();
+        new CommandLine(new Cli()).usage(new PrintWriter(sink));
+        assertTrue(sink.toString().contains("<folder-scanner>"),
+                "usage synopsis should show the <folder-scanner> placeholder");
+    }
+
+    @Test
+    void examples_use_the_placeholder_command_token() {
+        String ex = Cli.examplesText();
+        assertTrue(ex.contains("<folder-scanner> "),
+                "examples should invoke the <folder-scanner> placeholder");
+        assertFalse(ex.contains("  folder-scanner "),
+                "examples must not use the bare command token");
     }
 
     @Test
@@ -330,6 +465,7 @@ final class CliTest {
         assertEquals("aggregate", ConsumerKind.AGGREGATE.cliName());
         assertEquals("duplicates", ConsumerKind.DUPLICATES.cliName());
         assertEquals("filemanager", ConsumerKind.FILEMANAGER.cliName());
+        assertEquals("folders", ConsumerKind.FOLDERS.cliName());
         assertEquals("list", ManageAction.LIST.cliName());
         assertEquals("delete", ManageAction.DELETE.cliName());
         assertEquals("path", SortKey.PATH.cliName());
