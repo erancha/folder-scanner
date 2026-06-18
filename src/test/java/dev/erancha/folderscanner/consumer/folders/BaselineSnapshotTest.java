@@ -38,4 +38,18 @@ final class BaselineSnapshotTest {
         expected.put(Paths.get("/mnt/c/data"), 200L);
         assertEquals(expected, snap.bytesByFolder());
     }
+
+    @Test
+    void read_retains_the_file_count_column_so_the_compare_path_can_show_it(@TempDir Path dir)
+            throws IOException {
+        // The compare mode renders a "new folders" table with the file count, so read must keep the
+        // count column, not just the byte total it diffs on.
+        Path file = dir.resolve("baseline.tsv");
+        BaselineSnapshot.write(file, Instant.parse("2026-06-10T08:00:00Z"), List.of(
+                new FolderSize(Paths.get("/mnt/c/data"), 5, 200L)));
+
+        BaselineSnapshot snap = BaselineSnapshot.read(file);
+
+        assertEquals(List.of(new FolderSize(Paths.get("/mnt/c/data"), 5, 200L)), snap.rows());
+    }
 }

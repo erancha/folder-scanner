@@ -300,26 +300,31 @@ fi
 AGG_OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate "$FIXTURE" 2>&1)" || true
 assert_not_contains "non_folders_header_omits_recursive_threshold" "$AGG_OUT" "Min size recursive:"
 
-# ---- test 17: folders --baseline reports day-over-day growth and new folders ----
-# A dedicated tree with two ~100KB subtrees. Run 1 seeds the baseline (nothing to compare).
-# Before run 2: grower/ gains 50%, stable/ is untouched, and a brand-new fresh/ subtree appears.
-# Run 2 must flag grower/ in the growth section, leave stable/ out of it, and list fresh/ in its
-# own "New folders" section (a new subtree has no growth percentage, so it would otherwise vanish).
+# ---- test 17: folders --baseline directory keeps dated snapshots and diffs day-over-day ----
+# A dedicated tree with two ~100KB subtrees. Run 1 seeds the history directory (nothing to compare).
+# A day is then simulated by relabelling today's snapshot as yesterday's, grower/ gains 50%, and a
+# brand-new fresh/ subtree appears. Run 2 must diff against that prior day: flag grower/ in the
+# growth section, leave stable/ out of it, and list fresh/ in its own "New folders" section (a new
+# subtree has no growth percentage, so it would otherwise vanish).
 GROWTH_ROOT="$SCRATCH/growth"
 mkdir -p "$GROWTH_ROOT/grower" "$GROWTH_ROOT/stable"
 head -c 100000 /dev/urandom > "$GROWTH_ROOT/grower/g.bin"
 head -c 100000 /dev/urandom > "$GROWTH_ROOT/stable/s.bin"
-BASELINE="$SCRATCH/baseline.tsv"
+BASELINE_DIR="$SCRATCH/history"
+TODAY="$(date +%F)"
+YESTERDAY="$(date -d yesterday +%F)"
 # --min-size-recursive=0 so the ~100KB fixture folders are tracked despite the 10MB default.
-OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE" "$GROWTH_ROOT" 2>&1)" || true
+OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE_DIR" "$GROWTH_ROOT" 2>&1)" || true
 assert_contains "folders_baseline_first_run_seeds" "$OUT" "no prior baseline to compare"
-if [ -f "$BASELINE" ]; then ok "folders_baseline_file_written"
-else fail "folders_baseline_file_written" "expected $BASELINE to be written"; fi
+if [ -f "$BASELINE_DIR/$TODAY.tsv" ]; then ok "folders_baseline_dated_snapshot_written"
+else fail "folders_baseline_dated_snapshot_written" "expected $BASELINE_DIR/$TODAY.tsv"; fi
 
+# Relabel today's snapshot as yesterday's so run 2 has a strictly-older prior to diff against.
+mv "$BASELINE_DIR/$TODAY.tsv" "$BASELINE_DIR/$YESTERDAY.tsv"
 head -c 50000 /dev/urandom >> "$GROWTH_ROOT/grower/g.bin"   # grower/ +50%, stable/ unchanged
-mkdir -p "$GROWTH_ROOT/fresh"                               # fresh/ is absent from the baseline
+mkdir -p "$GROWTH_ROOT/fresh"                               # fresh/ is absent from the prior snapshot
 head -c 100000 /dev/urandom > "$GROWTH_ROOT/fresh/n.bin"
-OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE" "$GROWTH_ROOT" 2>&1)" || true
+OUT="$(./scripts/start.sh --consumer=folders --min-size-recursive=0 "--baseline=$BASELINE_DIR" "$GROWTH_ROOT" 2>&1)" || true
 # Scope each section: growth is between its header and the "New folders" header; new is from there on.
 GROWTH_SECTION="$(printf '%s\n' "$OUT" | sed -n '/Folder growth since/,/New folders since/p')"
 NEW_SECTION="$(printf '%s\n' "$OUT" | sed -n '/New folders since/,$p')"
@@ -329,6 +334,25 @@ assert_not_contains "folders_growth_omits_stable_folder" "$GROWTH_SECTION" "$GRO
 assert_not_contains "folders_growth_omits_new_folder" "$GROWTH_SECTION" "$GROWTH_ROOT/fresh"
 assert_contains "folders_new_section_present" "$OUT" "New folders since"
 assert_contains "folders_new_section_lists_fresh_folder" "$NEW_SECTION" "$GROWTH_ROOT/fresh"
+# Older days are retained: today's run writes today's file without overwriting yesterday's snapshot.
+if [ -f "$BASELINE_DIR/$YESTERDAY.tsv" ] && [ -f "$BASELINE_DIR/$TODAY.tsv" ]; then
+    ok "folders_baseline_retains_prior_days"
+else fail "folders_baseline_retains_prior_days" "expected both $YESTERDAY and $TODAY snapshots kept"; fi
+
+# ---- test 17b: folders --compare diffs two stored snapshots with no scan ----
+# Reuses the two snapshots written above (yesterday pre-growth, today post-growth).
+OUT="$(./scripts/start.sh --consumer=folders "--baseline=$BASELINE_DIR" "--compare=$YESTERDAY,$TODAY" 2>&1)"
+assert_exit_code "compare_exits_0" "0" "$?"
+assert_not_contains "compare_runs_no_scan" "$OUT" "Scanning "
+CMP_GROWTH="$(printf '%s\n' "$OUT" | sed -n '/Folder growth since/,/New folders since/p')"
+CMP_NEW="$(printf '%s\n' "$OUT" | sed -n '/New folders since/,$p')"
+assert_contains "compare_lists_grown_folder" "$CMP_GROWTH" "$GROWTH_ROOT/grower"
+assert_contains "compare_lists_fresh_folder" "$CMP_NEW" "$GROWTH_ROOT/fresh"
+
+# A requested date with no stored snapshot fails with a message naming it, and exits 2.
+OUT="$(./scripts/start.sh --consumer=folders "--baseline=$BASELINE_DIR" "--compare=2000-01-01,$TODAY" 2>&1)"; RC=$?
+assert_exit_code "compare_missing_snapshot_exits_2" "2" "$RC"
+assert_contains "compare_missing_snapshot_message" "$OUT" "no snapshot for 2000-01-01"
 
 # ---- test 18: --examples is a --help modifier; the example block requires --help ----
 # --help --examples shows usage plus the per-consumer block.

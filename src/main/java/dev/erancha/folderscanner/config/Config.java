@@ -12,5 +12,6 @@ public record Config(int queueSize, boolean statsEnabled, int producers, int con
         QueueType queueType, ConsumerKind consumerKind, ManageAction action, SortKey sortKey,
         SortOrder sortOrder, String outPath, boolean hardDelete, long minSizeBytes,
         long minSizeRecursiveBytes, String baselinePath, double growthThresholdPct,
-        Set<String> excludeDirs, FileExtensions.IncludeSet includeExtensions, String target) {
+        ComparePair comparePair, Set<String> excludeDirs,
+        FileExtensions.IncludeSet includeExtensions, String target) {
 }

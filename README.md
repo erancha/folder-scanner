@@ -17,8 +17,10 @@ O(folders)), while `duplicates` and `filemanager` retain one entry per surviving
   (`--action=delete`) the files surviving the producer filters; deletion writes a
   shell script that quarantines them (or, with `--hard-delete`, removes them).
 - `Folder-Size-Reporter` : ranks folders by recursive subtree size, largest first, collapsing
-  single-child pass-through chains to one row; with `--baseline=PATH` it also diffs against a saved
-  snapshot to flag day-over-day growth.
+  single-child pass-through chains to one row; with `--baseline=DIR` it keeps one dated snapshot per
+  run (`DIR/YYYY-MM-DD.tsv`, older days never overwritten) and diffs each run against the newest prior
+  one to flag day-over-day growth. `--compare=FROM,TO` diffs any two stored snapshots on demand,
+  without scanning, so growth can be backtracked across the retained history.
 
 ```mermaid
 %%{init: {'flowchart': {'wrappingWidth': 300}}}%%

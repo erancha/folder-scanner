@@ -1,12 +1,14 @@
 package dev.erancha.folderscanner;
 
 import dev.erancha.folderscanner.config.Cli;
+import dev.erancha.folderscanner.config.ComparePair;
 import dev.erancha.folderscanner.config.Config;
 import dev.erancha.folderscanner.consumer.FileConsumer;
 import dev.erancha.folderscanner.consumer.aggregator.Aggregator;
 import dev.erancha.folderscanner.consumer.duplicates.DuplicateLocator;
 import dev.erancha.folderscanner.consumer.filemanager.FileManager;
 import dev.erancha.folderscanner.consumer.folders.FolderSizeReporter;
+import dev.erancha.folderscanner.consumer.folders.SnapshotComparer;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.producer.FolderScanner;
@@ -95,6 +97,13 @@ public final class Main {
             System.exit(2);
             return;
         }
+        // Compare mode reads two stored snapshots and exits without scanning, so the scan target is
+        // irrelevant here and the directory check below is skipped.
+        if (cfg.comparePair() != null) {
+            runCompare(cfg);
+            return;
+        }
+
         if (!Files.isDirectory(root)) {
             LOGGER.error("Not a directory: {}", root);
             System.exit(2);
@@ -109,6 +118,22 @@ public final class Main {
             Throwable cause = e.getCause();
             LOGGER.error("{}", cause != null ? e.getMessage() + ": " + cause.getMessage()
                     : e.getMessage());
+            System.exit(2);
+        }
+    }
+
+    /**
+     * Runs {@code --compare}: diffs the two requested stored snapshots and prints the growth report,
+     * with no scan. A missing snapshot file surfaces as one leveled error line + exit 2, matching the
+     * config-error contract above.
+     */
+    private static void runCompare(Config cfg) {
+        ComparePair pair = cfg.comparePair();
+        try {
+            SnapshotComparer.compare(Paths.get(cfg.baselinePath()), pair.from(), pair.to(),
+                    cfg.growthThresholdPct(), System.out);
+        } catch (java.io.IOException e) {
+            LOGGER.error("{}", e.getMessage());
             System.exit(2);
         }
     }

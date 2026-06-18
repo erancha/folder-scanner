@@ -8,3 +8,4 @@ scripts/benchmarks.dat
 folder-sizes.tsv
 scripts/folders-growth.sh
 delete-files.sh
+scripts/**/folder-sizes/

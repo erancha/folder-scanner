@@ -131,15 +131,20 @@ public final class Cli {
                         "Same 1024-based syntax as --min-size (e.g. 50MB). Default 10MB; pass 0 for all folders." })
         String minSizeRecursiveRaw;
 
-        @Option(names = "--baseline", paramLabel = "PATH", description = {
-                        "Folders consumer: diff this run against the snapshot at PATH and report growth.",
-                        "Missing on first use; written after each run, so the next run compares to today." })
+        @Option(names = "--baseline", paramLabel = "DIR", description = {
+                        "Folders consumer: a directory of dated snapshots (DIR/YYYY-MM-DD.tsv).",
+                        "Each run diffs against the newest prior snapshot and writes today's; older days are kept." })
         String baselinePath = "";
 
         @Option(names = "--growth-threshold", paramLabel = "PCT", description = {
                         "Folders consumer with --baseline: report folders that grew more than PCT percent.",
                         "Default 10." })
         String growthThresholdRaw;
+
+        @Option(names = "--compare", paramLabel = "FROM,TO", description = {
+                        "Folders consumer with --baseline: diff two stored snapshots (FROM,TO dates) and exit.",
+                        "Reads DIR/FROM.tsv and DIR/TO.tsv; runs no scan." })
+        String compareRaw;
 
         // --- Bounded queue between producers and consumers ---
         @Option(names = "--queue-type", paramLabel = "T", description = {
@@ -185,8 +190,12 @@ public final class Cli {
                                   # Rank folders by recursive subtree size, largest first, only folders >= 100MB
                                   <folder-scanner> --consumer=folders --exclude="$EXCLUDE" --min-size-recursive=100MB /mnt/c
 
-                                  # Daily growth check: diff against the saved snapshot, flag folders that grew > 10%
-                                  <folder-scanner> --consumer=folders --exclude="$EXCLUDE" --baseline=folder-sizes.tsv /mnt/c
+                                  # Daily growth check: diff against the newest prior dated snapshot in the directory,
+                                  # flag folders that grew > 10%, and write today's snapshot (folder-sizes/YYYY-MM-DD.tsv)
+                                  <folder-scanner> --consumer=folders --exclude="$EXCLUDE" --baseline=folder-sizes /mnt/c
+
+                                  # Backtrack: diff two stored snapshots on demand, without scanning the disk
+                                  <folder-scanner> --consumer=folders --baseline=folder-sizes --compare=2026-06-01,2026-06-10
 
                                   # Locate duplicate-content files and write a script that quarantines the copies
                                   <folder-scanner> --consumer=duplicates --exclude="$EXCLUDE" --min-size=1MB /mnt/c
@@ -280,6 +289,14 @@ public final class Cli {
                         }
                 }
 
+                if (compareRaw != null && consumerKind != ConsumerKind.FOLDERS) {
+                        errors.add("--compare only applies with --consumer=folders");
+                }
+                if (compareRaw != null && !baselineSet) {
+                        errors.add("--compare requires --baseline");
+                }
+                ComparePair comparePair = ComparePair.parseOrCollect(compareRaw, errors);
+
                 FileExtensions.IncludeSet includeExtensions = FileExtensions.parse(fileExtRaw);
 
                 Set<String> excludeDirs = parseExcludeDirs(excludeRaw);
@@ -297,7 +314,8 @@ public final class Cli {
                 return new Config(queueSizeV, stats, producersV, consumersV, queueType,
                                 consumerKind, action, sortKey, sortOrder, outPath, hardDelete,
                                 minSizeBytes, minSizeRecursiveBytes, baselinePath,
-                                growthThresholdPct, excludeDirs, includeExtensions, target);
+                                growthThresholdPct, comparePair, excludeDirs, includeExtensions,
+                                target);
         }
 
         private static Set<String> parseExcludeDirs(String raw) {

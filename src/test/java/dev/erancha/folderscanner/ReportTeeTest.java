@@ -56,8 +56,8 @@ final class ReportTeeTest {
             throws IOException {
         Path outFile = dir.resolve("aggregate-report.out");
         Config cfg = new Config(1024, false, 1, 1, QueueType.LBQ, ConsumerKind.AGGREGATE, null,
-                SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, 0L, "", 10.0, Set.of(),
-                FileExtensions.IncludeSet.ALL, ".");
+                SortKey.PATH, SortOrder.ASC, outFile.toString(), false, 0L, 0L, "", 10.0, null,
+                Set.of(), FileExtensions.IncludeSet.ALL, ".");
 
         PrintStream realOut = System.out;
         ByteArrayOutputStream terminalCapture = new ByteArrayOutputStream();

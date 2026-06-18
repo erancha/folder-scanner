@@ -9,7 +9,6 @@ import dev.erancha.folderscanner.producer.FileInfoFactory;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
@@ -20,6 +19,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
@@ -42,8 +42,8 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
     // Highest folder reported; the roll-up stops here so nothing above the scan target is summed.
     private final Path root;
 
-    // Empty disables day-over-day growth reporting; otherwise the file diffed against and then
-    // overwritten with this run's sizes, so the next run compares against today.
+    // Empty disables day-over-day growth reporting; otherwise the directory of dated snapshots this
+    // run diffs against (newest prior) and writes today's snapshot into.
     private final String baselinePath;
 
     // Percent a folder must grow past (strictly) to appear in the growth section.
@@ -87,64 +87,29 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
     }
 
     /**
-     * Compares this run against the baseline file: prints the folders that grew past the threshold
-     * and, separately, the folders new since the baseline, then overwrites the baseline so the next
-     * run compares against today. The first run only seeds the file. File I/O is wrapped unchecked so
-     * {@link #report} keeps the base class's non-throwing contract; Main surfaces it as one error line.
+     * Diffs this run against the newest dated snapshot already in the baseline directory and prints
+     * the growth and new-folder sections, then writes today's snapshot into that directory so older
+     * days are retained and the next run compares against today. The first run (empty directory) only
+     * seeds it. File I/O is wrapped unchecked so {@link #report} keeps the base class's non-throwing
+     * contract; Main surfaces it as one error line.
      */
     private void reportGrowth(PrintStream out, List<FolderSize> current) {
-        Path file = Paths.get(baselinePath);
+        SnapshotHistory history = new SnapshotHistory(Paths.get(baselinePath));
+        LocalDate today = LocalDate.now(ZoneId.systemDefault());
         try {
-            if (Files.exists(file)) {
-                BaselineSnapshot baseline = BaselineSnapshot.read(file);
-                Map<Path, Long> was = baseline.bytesByFolder();
-                printGrowth(out, baseline.timestamp(),
-                        FolderGrowth.since(was, current, growthThresholdPct));
-                printNew(out, baseline.timestamp(), FolderGrowth.appeared(was, current));
+            Optional<Path> prior = history.priorSnapshot(today);
+            if (prior.isPresent()) {
+                BaselineSnapshot baseline = BaselineSnapshot.read(prior.get());
+                GrowthReport.print(out, baseline.timestamp(), growthThresholdPct,
+                        baseline.bytesByFolder(), current);
             } else {
                 out.printf("%nBaseline written (%,d folders); no prior baseline to compare.%n",
                         current.size());
             }
-            BaselineSnapshot.write(file, Instant.now(), current);
+            BaselineSnapshot.write(history.targetFile(today), Instant.now(), current);
         } catch (IOException e) {
-            throw new UncheckedIOException("baseline " + file, e);
+            throw new UncheckedIOException("baseline " + baselinePath, e);
         }
-    }
-
-    private void printGrowth(PrintStream out, Instant baselineTime, List<FolderGrowth> grown) {
-        LocalDate since = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
-        out.printf("%nFolder growth since %s (> %s%%):%n", since, formatThreshold());
-        if (grown.isEmpty()) {
-            out.printf("  none%n");
-            return;
-        }
-        out.printf("%12s %12s %14s %7s  %s%n", "was", "now", "+delta", "+pct", "folder");
-        for (FolderGrowth g : grown) {
-            out.printf("%12s %12s %14s %6.1f%%  %s%n", Format.humanBytes(g.was()),
-                    Format.humanBytes(g.now()), "+" + Format.humanBytes(g.now() - g.was()), g.pct(),
-                    g.path());
-        }
-    }
-
-    // New folders have no growth percentage, so they get their own section instead of being dropped.
-    private void printNew(PrintStream out, Instant baselineTime, List<FolderSize> appeared) {
-        LocalDate since = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
-        out.printf("%nNew folders since %s:%n", since);
-        if (appeared.isEmpty()) {
-            out.printf("  none%n");
-            return;
-        }
-        out.printf("%12s %10s  %s%n", "bytes", "count", "folder");
-        for (FolderSize f : appeared) {
-            out.printf("%12s %10d  %s%n", Format.humanBytes(f.bytes()), f.count(), f.path());
-        }
-    }
-
-    // Drop a trailing ".0" so the common whole-percent threshold reads "> 10%", not "> 10.0%".
-    private String formatThreshold() {
-        return growthThresholdPct == Math.floor(growthThresholdPct)
-                ? String.valueOf((long) growthThresholdPct)
-                : String.valueOf(growthThresholdPct);
     }
 
     // Key: folder directly containing files. Value: {count, bytes} of those direct files only.

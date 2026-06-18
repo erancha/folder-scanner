@@ -25,20 +25,30 @@ public final class BaselineSnapshot {
     private static final char DELIM = '\t';
 
     private final Instant timestamp;
-    // Key: folder path. Value: recursive subtree bytes recorded for it at snapshot time.
-    private final Map<Path, Long> bytesByFolder;
+    // The recorded rows in file order: each folder's recursive count and bytes at snapshot time. The
+    // count is kept (not just bytes) so the compare path can render the "new folders" count column.
+    private final List<FolderSize> rows;
 
-    private BaselineSnapshot(Instant timestamp, Map<Path, Long> bytesByFolder) {
+    private BaselineSnapshot(Instant timestamp, List<FolderSize> rows) {
         this.timestamp = timestamp;
-        this.bytesByFolder = bytesByFolder;
+        this.rows = rows;
     }
 
     public Instant timestamp() {
         return timestamp;
     }
 
+    public List<FolderSize> rows() {
+        return rows;
+    }
+
+    // Key: folder path. Value: recursive subtree bytes — the side the day-over-day diff compares on.
     public Map<Path, Long> bytesByFolder() {
-        return bytesByFolder;
+        Map<Path, Long> byFolder = new HashMap<>();
+        for (FolderSize row : rows) {
+            byFolder.put(row.path(), row.bytes());
+        }
+        return byFolder;
     }
 
     /**
@@ -60,7 +70,7 @@ public final class BaselineSnapshot {
     /** Parses a snapshot written by {@link #write}; the caller checks {@code file} exists first. */
     static BaselineSnapshot read(Path file) throws IOException {
         Instant timestamp = null;
-        Map<Path, Long> bytesByFolder = new HashMap<>();
+        List<FolderSize> rows = new ArrayList<>();
         for (String line : Files.readAllLines(file)) {
             if (line.startsWith("# ")) {
                 timestamp = Instant.parse(line.substring(2).trim());
@@ -71,9 +81,10 @@ public final class BaselineSnapshot {
             int firstTab = line.indexOf(DELIM);
             int secondTab = line.indexOf(DELIM, firstTab + 1);
             long bytes = Long.parseLong(line.substring(0, firstTab));
+            long count = Long.parseLong(line.substring(firstTab + 1, secondTab));
             String path = line.substring(secondTab + 1);
-            bytesByFolder.put(Paths.get(path), bytes);
+            rows.add(new FolderSize(Paths.get(path), count, bytes));
         }
-        return new BaselineSnapshot(timestamp, bytesByFolder);
+        return new BaselineSnapshot(timestamp, rows);
     }
 }

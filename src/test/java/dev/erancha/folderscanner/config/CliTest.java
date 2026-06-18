@@ -379,6 +379,46 @@ final class CliTest {
     }
 
     @Test
+    void compare_parses_two_dates_against_the_baseline_directory() {
+        Config cfg = parse("--consumer=folders", "--baseline=/tmp/history",
+                "--compare=2026-06-01,2026-06-10");
+        ComparePair pair = cfg.comparePair();
+        assertNotNull(pair, "expected a parsed compare pair");
+        assertEquals(java.time.LocalDate.parse("2026-06-01"), pair.from());
+        assertEquals(java.time.LocalDate.parse("2026-06-10"), pair.to());
+    }
+
+    @Test
+    void compare_pair_is_null_when_the_flag_is_absent() {
+        assertEquals(null, parse("--consumer=folders", "--baseline=/tmp/history").comparePair());
+    }
+
+    @Test
+    void compare_without_baseline_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--compare=2026-06-01,2026-06-10"));
+        assertTrue(ex.getMessage().contains("--compare requires --baseline"),
+                "expected --compare misuse complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void compare_with_a_non_folders_consumer_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--baseline=/tmp/history", "--compare=2026-06-01,2026-06-10"));
+        assertTrue(ex.getMessage().contains("--compare only applies"),
+                "expected --compare consumer complaint, got: " + ex.getMessage());
+    }
+
+    @Test
+    void malformed_compare_value_is_rejected() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("--consumer=folders", "--baseline=/tmp/history",
+                        "--compare=2026-06-01"));
+        assertTrue(ex.getMessage().contains("--compare"),
+                "expected --compare format complaint, got: " + ex.getMessage());
+    }
+
+    @Test
     void semantic_validation_errors_aggregate_in_one_exception() {
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> parse("--queue-type=nope", "--consumer=nope", "--min-size=ten",
