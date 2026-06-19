@@ -25,7 +25,7 @@ public final class Format {
     public static String humanBytes(long bytes) {
         if (bytes < 1024) return bytes + " B";
         Scaled s = scale(bytes);
-        return String.format("%.2f %s", s.value, s.unit);
+        return String.format("%.1f %s", s.value, s.unit);
     }
 
     /**

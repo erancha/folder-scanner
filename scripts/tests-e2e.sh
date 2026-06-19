@@ -178,10 +178,10 @@ assert_contains "exclude_on_hides_node_modules_file" "$OUT" "Files=5"
 # (2048 B) and big.bin (~1.05 MB) survive. Files=2 plus a Filtered (size...) line.
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB "$FIXTURE" 2>&1)" || true
 assert_contains "min_size_files_count" "$OUT" "Files=2"
-assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.00 KB): 3 files"
+assert_contains "min_size_report_line" "$OUT" "Skipped (size < 1.0 KB): 3 files"
 # The min-size threshold is echoed as an opener line right after Excluding; the
 # run-level summary (Done / Run stats) trails the detail tables.
-assert_contains "min_size_opener_line" "$OUT" "Min size: 1.00 KB"
+assert_contains "min_size_opener_line" "$OUT" "Min size: 1.0 KB"
 # With no extension filter the openers echo the all-extensions sentinel, sitting
 # between Excluding and Min size.
 assert_contains "all_extensions_opener_line" "$OUT" "Extensions: [*]"
@@ -222,7 +222,7 @@ assert_eq "file_extensions_no_bin_row" "" "$BIN_ROW"
 # unique.bin (2048 B) + big.bin (~1.05 MB), both passing both filters.
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=aggregate --min-size=1KB --file-extensions=bin "$FIXTURE" 2>&1)" || true
 assert_contains "producer_filter_files_count" "$OUT" "Files=2"
-assert_contains "producer_filter_size_report" "$OUT" "Skipped (size < 1.00 KB):"
+assert_contains "producer_filter_size_report" "$OUT" "Skipped (size < 1.0 KB):"
 assert_contains "producer_filter_type_report" "$OUT" "Skipped (extension not in [bin]):"
 BIN_ROW="$(printf "%s" "$OUT" | grep -E '^\s*bin\b' || true)"
 assert_contains "producer_filter_bin_row_present" "$BIN_ROW" "bin"
@@ -283,7 +283,7 @@ assert_not_contains "runtime_write_failure_no_stack_trace" "$WRITE_ERR" "Excepti
 # (~2 KB) are dropped. The root is always shown and, holding everything, ranks first. The
 # threshold is echoed in the scan header on its own line, only for this consumer.
 OUT="$(./scripts/start.sh "$EXCLUDE" --consumer=folders --min-size-recursive=1MB "$FIXTURE" 2>&1)" || true
-assert_contains "folders_header_echoes_recursive_threshold" "$OUT" "Min size recursive: 1.00 MB"
+assert_contains "folders_header_echoes_recursive_threshold" "$OUT" "Min size recursive: 1.0 MB"
 UNIQUE_ROW="$(printf '%s\n' "$OUT" | grep -E "[[:space:]]$FIXTURE/unique$" || true)"
 assert_contains "folders_lists_large_subtree" "$UNIQUE_ROW" "$FIXTURE/unique"
 MEDIUM_ROW="$(printf '%s\n' "$OUT" | grep -E "[[:space:]]$FIXTURE/medium$" || true)"

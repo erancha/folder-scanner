@@ -31,7 +31,7 @@ final class ReportPrinterTest {
         FilterTally active = new FilterTally(1024L, 3L, 5_000L, FileExtensions.IncludeSet.ALL, 0L,
                 0L, 0L, 0L);
         String out = capture(o -> ReportPrinter.printFilterSummary(o, active));
-        assertEquals(String.format("%nSkipped (size < 1.00 KB): 3 files (4.88 KB).%n"), out);
+        assertEquals(String.format("%nSkipped (size < 1.0 KB): 3 files (4.9 KB).%n"), out);
 
         FilterTally inactive = new FilterTally(0L, 0L, 0L, FileExtensions.IncludeSet.ALL, 0L, 0L,
                 0L, 0L);
@@ -43,7 +43,7 @@ final class ReportPrinterTest {
         FileExtensions.IncludeSet only = FileExtensions.parse("txt,md");
         FilterTally active = new FilterTally(0L, 0L, 0L, only, 7L, 2_048L, 0L, 0L);
         String out = capture(o -> ReportPrinter.printFilterSummary(o, active));
-        assertEquals(String.format("%nSkipped (extension not in [md, txt]): 7 files (2.00 KB).%n"),
+        assertEquals(String.format("%nSkipped (extension not in [md, txt]): 7 files (2.0 KB).%n"),
                 out);
 
         FilterTally all = new FilterTally(0L, 0L, 0L, FileExtensions.IncludeSet.ALL, 0L, 0L, 0L, 0L);
@@ -73,6 +73,6 @@ final class ReportPrinterTest {
     @Test
     void done_line_carries_elapsed_file_count_and_total_bytes() {
         String out = capture(o -> ReportPrinter.printDone(o, 1_500L, 1_234L, 5_242_880L));
-        assertEquals(String.format("%nDone in 1.5 s. Files=1,234  TotalBytes=5.00 MB%n"), out);
+        assertEquals(String.format("%nDone in 1.5 s. Files=1,234  TotalBytes=5.0 MB%n"), out);
     }
 }

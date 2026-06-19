@@ -19,15 +19,15 @@ final class FormatTest {
 
     @Test
     void humanBytes_rolls_up_at_kilobyte_boundary() {
-        assertEquals("1.00 KB", Format.humanBytes(1024));
-        assertEquals("1.50 KB", Format.humanBytes(1024 + 512));
+        assertEquals("1.0 KB", Format.humanBytes(1024));
+        assertEquals("1.5 KB", Format.humanBytes(1024 + 512));
     }
 
     @Test
     void humanBytes_rolls_up_through_mb_gb_tb() {
-        assertEquals("1.00 MB", Format.humanBytes(1024L * 1024));
-        assertEquals("1.00 GB", Format.humanBytes(1024L * 1024 * 1024));
-        assertEquals("1.00 TB", Format.humanBytes(1024L * 1024 * 1024 * 1024));
+        assertEquals("1.0 MB", Format.humanBytes(1024L * 1024));
+        assertEquals("1.0 GB", Format.humanBytes(1024L * 1024 * 1024));
+        assertEquals("1.0 TB", Format.humanBytes(1024L * 1024 * 1024 * 1024));
     }
 
     @Test
