@@ -2,5 +2,6 @@ set "EXCLUDE=Windows,ProgramData,Program Files,Program Files (x86),$Recycle.Bin,
 
 java -jar ../../target/folder-scanner-1.0-SNAPSHOT.jar --consumer=folders --exclude="%EXCLUDE%" "c:/" --min-size-recursive=100MB --baseline=folder-sizes
 
-java -jar ../../target/folder-scanner-1.0-SNAPSHOT.jar --consumer=filemanager --exclude="%EXCLUDE%" "c:/" --min-size=100MB --sort=date
+@REM java -jar ../../target/folder-scanner-1.0-SNAPSHOT.jar --consumer=filemanager --exclude="%EXCLUDE%" "c:/" --min-size=100MB --sort=date
+
 pause
