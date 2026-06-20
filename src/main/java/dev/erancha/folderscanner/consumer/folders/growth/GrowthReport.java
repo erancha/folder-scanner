@@ -1,9 +1,11 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
 
+import dev.erancha.folderscanner.consumer.folders.FolderSize;
 import dev.erancha.folderscanner.data.Format;
 
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -14,28 +16,29 @@ import java.util.Map;
  * since the prior snapshot — from a baseline's recorded sizes and a current set of folder sizes.
  *
  * Shared by both producers of these sections so the format is defined once: the scan path
- * ({@link FolderSizeReporter}) diffing against the newest prior snapshot, and the on-demand compare
- * path ({@link SnapshotComparer}) diffing two stored snapshots.
+ * (FolderSizeReporter) diffing against the newest prior snapshot, and the on-demand compare path
+ * (SnapshotComparer) diffing two stored snapshots.
  */
-final class GrowthReport {
+public final class GrowthReport {
 
     private GrowthReport() {}
 
     /**
-     * Prints the growth section followed by the new-folders section. {@code baselineTime} dates both
-     * section headers; {@code was} is the baseline's recursive bytes per folder; {@code current} is
-     * the set being compared against it.
+     * Prints the growth section followed by the new-folders section. baselineTime dates both section
+     * headers; baselineBytes is the prior recursive bytes per folder; current is the set being
+     * compared against it.
      */
-    static void print(PrintStream out, java.time.Instant baselineTime, double thresholdPct,
-            Map<Path, Long> was, List<FolderSize> current) {
-        printGrowth(out, baselineTime, thresholdPct, FolderGrowth.since(was, current, thresholdPct));
-        printNew(out, baselineTime, FolderGrowth.appeared(was, current));
+    public static void print(PrintStream out, Instant baselineTime, double thresholdPct,
+            Map<Path, Long> baselineBytes, List<FolderSize> current) {
+        printGrowth(out, baselineTime, thresholdPct,
+                FolderGrowth.since(baselineBytes, current, thresholdPct));
+        printNew(out, baselineTime, FolderGrowth.appeared(baselineBytes, current));
     }
 
-    private static void printGrowth(PrintStream out, java.time.Instant baselineTime,
+    private static void printGrowth(PrintStream out, Instant baselineTime,
             double thresholdPct, List<FolderGrowth> grown) {
-        LocalDate since = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
-        out.printf("%nFolder growth since %s (> %s%%):%n", since, formatThreshold(thresholdPct));
+        LocalDate baselineDate = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
+        out.printf("%nFolder growth since %s (> %s%%):%n", baselineDate, formatThreshold(thresholdPct));
         if (grown.isEmpty()) {
             out.printf("  none%n");
             return;
@@ -49,10 +52,10 @@ final class GrowthReport {
     }
 
     // New folders have no growth percentage, so they get their own section instead of being dropped.
-    private static void printNew(PrintStream out, java.time.Instant baselineTime,
+    private static void printNew(PrintStream out, Instant baselineTime,
             List<FolderSize> appeared) {
-        LocalDate since = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
-        out.printf("%nNew folders since %s:%n", since);
+        LocalDate baselineDate = LocalDate.ofInstant(baselineTime, ZoneId.systemDefault());
+        out.printf("%nNew folders since %s:%n", baselineDate);
         if (appeared.isEmpty()) {
             out.printf("  none%n");
             return;

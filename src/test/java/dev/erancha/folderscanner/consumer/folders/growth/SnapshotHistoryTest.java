@@ -1,4 +1,4 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,8 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit tests for the dated snapshot directory: {@link SnapshotHistory} owns the
- * {@code YYYY-MM-DD.tsv} naming, selects the newest snapshot strictly older than a given day, and
+ * Unit tests for the dated snapshot directory: SnapshotHistory owns the YYYY-MM-DD.tsv naming,
+ * selects the newest snapshot strictly older than a given day, and
  * resolves the target file for a write.
  */
 final class SnapshotHistoryTest {

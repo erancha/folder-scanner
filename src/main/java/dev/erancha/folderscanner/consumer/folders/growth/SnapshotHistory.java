@@ -1,4 +1,4 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -9,8 +9,8 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
- * A directory of dated folder-size snapshots behind {@code --baseline}: one file per run named
- * {@code YYYY-MM-DD.tsv}. Owns that naming convention so the scan path can find the prior day's
+ * A directory of dated folder-size snapshots behind --baseline: one file per run named
+ * YYYY-MM-DD.tsv. Owns that naming convention so the scan path can find the prior day's
  * snapshot to diff against and resolve today's write target, and the compare path can address any
  * stored day by date.
  *
@@ -28,10 +28,10 @@ public final class SnapshotHistory {
     }
 
     /**
-     * The newest snapshot whose date is strictly before {@code today}, or empty when none exists
-     * (including an absent directory). Today's own file is skipped so a second run the same day still
-     * diffs against the prior day rather than against itself. Names that are not {@code YYYY-MM-DD.tsv}
-     * — the atomic-write {@code .tmp} sibling, unrelated files — are ignored.
+     * The newest snapshot whose date is strictly before today, or empty when none exists (including
+     * an absent directory). Today's own file is skipped so a second run the same day still diffs
+     * against the prior day rather than against itself. Names that are not YYYY-MM-DD.tsv — the
+     * atomic-write .tmp sibling, unrelated files — are ignored.
      */
     public Optional<Path> priorSnapshot(LocalDate today) throws IOException {
         if (!Files.isDirectory(dir)) {
@@ -44,7 +44,7 @@ public final class SnapshotHistory {
         }
     }
 
-    /** The file this run writes to: {@code DIR/<today>.tsv}, replacing any earlier run from today. */
+    /** The file this run writes to: DIR/<today>.tsv, replacing any earlier run from today. */
     public Path targetFile(LocalDate today) {
         return fileFor(today);
     }

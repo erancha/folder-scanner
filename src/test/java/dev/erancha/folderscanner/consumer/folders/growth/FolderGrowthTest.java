@@ -1,4 +1,6 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
+
+import dev.erancha.folderscanner.consumer.folders.FolderSize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -11,7 +13,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for the pure baseline-to-current growth diff: {@link FolderGrowth#since} keeps only the
+ * Unit tests for the pure baseline-to-current growth diff: FolderGrowth.since keeps only the
  * folders whose recursive bytes grew by strictly more than the threshold percentage, skipping
  * folders absent from the baseline or with a zero baseline (growth from zero has no percentage).
  */

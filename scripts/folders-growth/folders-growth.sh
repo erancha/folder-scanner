@@ -55,5 +55,5 @@ echo "===== folders-growth run: $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
 # WSL mount of the Windows C: drive — the shell counterpart of the .cmd's c:/ root.
 scan() { java -jar "$JAR" --exclude="$EXCLUDE" --file-extensions="$FILES_EXTENSIONS" /mnt/c/ "$@"; }
 
-scan --consumer=folders --min-size-recursive=100MB --baseline="$BASELINE_DIR"
+scan --consumer=folders --min-size-recursive=50MB --baseline="$BASELINE_DIR"
 # scan --consumer=filemanager --min-size=100MB --sort=date

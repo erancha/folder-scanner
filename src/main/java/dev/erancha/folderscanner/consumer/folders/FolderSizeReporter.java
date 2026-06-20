@@ -1,6 +1,9 @@
 package dev.erancha.folderscanner.consumer.folders;
 
 import dev.erancha.folderscanner.consumer.AbstractFileConsumer;
+import dev.erancha.folderscanner.consumer.folders.growth.BaselineSnapshot;
+import dev.erancha.folderscanner.consumer.folders.growth.GrowthReport;
+import dev.erancha.folderscanner.consumer.folders.growth.SnapshotHistory;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.data.PathFileInfo;
@@ -17,23 +20,55 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
  * Reports the folders that hold the most space, recursively, ranked largest-first — the consumer
- * behind {@code --consumer=folders}.
+ * behind --consumer=folders.
  *
- * Hot path stays O(1) per file: each drainer adds a file only to its immediately-containing folder
- * (one map lookup), never walking ancestors. The ancestor roll-up runs once after the drain
- * ({@link #rollUp}), summing each folder's subtree into recursive totals for every ancestor up to
- * the scan root, then dropping folders below {@code --min-size-recursive} and ranking by size.
+ * Flow, end to end:
+ *   1. Drain (accept) — each drainer thread adds a file only to the folder that directly contains
+ *      it. This is the hot path, so it stays O(1) per file: one map lookup, never an ancestor walk.
+ *   2. Freeze (directTallies) — once draining is done, the concurrent counters are snapshotted into
+ *      a plain folder-to-Tally map of immediate-child totals.
+ *   3. Roll up (rollUp) — each folder's tally is added into every ancestor up to the scan root,
+ *      turning immediate-child totals into whole-subtree totals; then small folders are dropped,
+ *      redundant pass-through links collapse, and the rest rank by size.
+ *   4. Print (printRows), then optionally diff against the prior snapshot (reportGrowth).
+ *
+ * Worked example — the only scanned files live in .../jmeter/results:
+ *
+ *   immediate:  /mnt/c/projects/.../jmeter/results   count 4, 2.44 GB
+ *
+ *   recursive:  /mnt/c/projects                       4, 2.44 GB
+ *               /mnt/c/projects/JAVA                  4, 2.44 GB   identical all the way down,
+ *               /mnt/c/projects/.../jmeter            4, 2.44 GB   because the files sit only in
+ *               /mnt/c/projects/.../jmeter/results    4, 2.44 GB   the single leaf
+ *
+ *   reported:   /mnt/c/projects                       4, 2.44 GB   scan root, kept as the anchor
+ *               /mnt/c/projects/.../jmeter/results    4, 2.44 GB   deepest link = the real folder
+ *
+ * The intermediate JAVA and jmeter links carry the identical total and add nothing of their own, so
+ * they collapse away and the report points straight at results — the folder you would actually act
+ * on (delete, inspect).
  */
 public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo> {
+
+    /** A folder's file count and byte total — for either its immediate children or its whole subtree. */
+    record Tally(long count, long bytes) {
+        static final Tally EMPTY = new Tally(0, 0);
+
+        Tally plus(Tally other) {
+            return new Tally(count + other.count, bytes + other.bytes);
+        }
+    }
 
     // Recursive byte total below which a folder is omitted from the report (the scan root is always
     // kept regardless, as the orientation anchor / grand total).
@@ -49,8 +84,9 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
     // Percent a folder must grow past (strictly) to appear in the growth section.
     private final double growthThresholdPct;
 
-    // Per-folder tallies for the folder that DIRECTLY contains each file (no descendants). Keyed by
-    // that immediate parent; the ancestor roll-up to recursive totals happens at report time.
+    // Counters for the folder that DIRECTLY contains each file, accumulated concurrently by the
+    // drainers. Kept as two maps so each adder is a single hot-path increment; merged into one Tally
+    // per folder by directTallies() once draining is done.
     private final ConcurrentHashMap<Path, LongAdder> directCount = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Path, LongAdder> directBytes = new ConcurrentHashMap<>();
 
@@ -80,7 +116,7 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
 
     @Override
     protected void report(PrintStream out) {
-        List<FolderSize> rows = rollUp(snapshotDirect(), root, minSizeRecursiveBytes);
+        List<FolderSize> rows = rollUp(directTallies(), root, minSizeRecursiveBytes);
         printRows(out, rows);
         if (!baselinePath.isEmpty())
             reportGrowth(out, rows);
@@ -90,7 +126,7 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
      * Diffs this run against the newest dated snapshot already in the baseline directory and prints
      * the growth and new-folder sections, then writes today's snapshot into that directory so older
      * days are retained and the next run compares against today. The first run (empty directory) only
-     * seeds it. File I/O is wrapped unchecked so {@link #report} keeps the base class's non-throwing
+     * seeds it. File I/O is wrapped unchecked so report keeps the base class's non-throwing
      * contract; Main surfaces it as one error line.
      */
     private void reportGrowth(PrintStream out, List<FolderSize> current) {
@@ -112,63 +148,60 @@ public final class FolderSizeReporter extends AbstractFileConsumer<PathFileInfo>
         }
     }
 
-    // Key: folder directly containing files. Value: {count, bytes} of those direct files only.
-    private Map<Path, long[]> snapshotDirect() {
-        Map<Path, long[]> direct = new HashMap<>();
-        directCount.forEach((folder, adder) -> direct.computeIfAbsent(folder,
-                k -> new long[2])[0] = adder.sum());
-        directBytes.forEach((folder, adder) -> direct.computeIfAbsent(folder,
-                k -> new long[2])[1] = adder.sum());
-        return direct;
+    // Freezes the two concurrent counter maps into one immutable Tally per folder that directly
+    // holds files. Both maps share the same key set (accept() always touches both), so iterating one
+    // and reading the other is complete.
+    private Map<Path, Tally> directTallies() {
+        Map<Path, Tally> tallies = new HashMap<>();
+        directBytes.forEach((folder, bytes) ->
+                tallies.put(folder, new Tally(directCount.get(folder).sum(), bytes.sum())));
+        return tallies;
     }
 
     /**
-     * Rolls the per-immediate-parent tallies up into recursive subtree totals for every ancestor
-     * folder from each populated folder up to {@code root} inclusive, so a folder holding only
-     * subfolders still gets the size of everything beneath it. Folders whose recursive byte total
-     * is below {@code minBytes} are omitted; {@code root} is always present (even at zero). Rows are
-     * ranked by bytes descending, path ascending as the deterministic tiebreaker.
+     * Turns the immediate-child tallies into recursive subtree totals — each folder's tally is added
+     * into every ancestor up to root inclusive, so a folder holding only subfolders still gets the
+     * size of everything beneath it — then returns the reportable rows: folders below minBytes
+     * dropped, redundant pass-through links collapsed, ranked by bytes descending with path ascending
+     * as the tiebreaker. root is always present (even at zero) as the anchor.
      *
-     * Pass-through chains are collapsed to their topmost link: a folder is dropped when its parent
-     * has the identical recursive count and bytes, which happens only when that parent holds no
-     * files of its own and no other subfolder (e.g. {@code .../resources} containing nothing but
-     * {@code app}). The parent stands in for the whole chain, so the listing shows one row per
-     * chain instead of a row for every redundant link.
+     * A pass-through link is a folder whose recursive total exactly equals one of its children's — it
+     * holds no files of its own and no second subfolder, so it adds nothing the child does not already
+     * show (e.g. a resources folder containing nothing but app). Such a folder is dropped in favour of
+     * its deeper child, so a chain a/b/c/results reports only results: the lowest folder that actually
+     * holds the bytes, i.e. the one to act on.
      */
-    static List<FolderSize> rollUp(Map<Path, long[]> direct, Path root, long minBytes) {
-        Map<Path, long[]> recursive = new HashMap<>();
-        for (Map.Entry<Path, long[]> e : direct.entrySet()) {
-            long[] cb = e.getValue();
-            for (Path cur = e.getKey(); cur != null; cur = cur.getParent()) {
-                long[] acc = recursive.computeIfAbsent(cur, k -> new long[2]);
-                acc[0] += cb[0];
-                acc[1] += cb[1];
-                if (cur.equals(root))
+    static List<FolderSize> rollUp(Map<Path, Tally> immediate, Path root, long minBytes) {
+        Map<Path, Tally> subtreeTotals = new HashMap<>();
+        for (Map.Entry<Path, Tally> e : immediate.entrySet()) {
+            Tally tally = e.getValue();
+            for (Path folder = e.getKey(); folder != null; folder = folder.getParent()) {
+                subtreeTotals.merge(folder, tally, Tally::plus);
+                if (folder.equals(root))
                     break;
             }
         }
-        recursive.computeIfAbsent(root, k -> new long[2]);
+        subtreeTotals.putIfAbsent(root, Tally.EMPTY);
+
+        // A folder whose subtree total equals one of its children's is a redundant pass-through the
+        // deeper child already represents; mark it for removal. (root never qualifies: its parent is
+        // above the scan and so absent from the map, and it is kept unconditionally below anyway.)
+        Set<Path> redundantAncestors = new HashSet<>();
+        subtreeTotals.forEach((folder, total) -> {
+            Path parent = folder.getParent();
+            if (total.equals(subtreeTotals.get(parent)))
+                redundantAncestors.add(parent);
+        });
 
         List<FolderSize> rows = new ArrayList<>();
-        for (Map.Entry<Path, long[]> e : recursive.entrySet()) {
-            Path folder = e.getKey();
-            long[] cb = e.getValue();
-            if (!folder.equals(root) && isPassThroughOf(recursive.get(folder.getParent()), cb))
-                continue;
-            if (folder.equals(root) || cb[1] >= minBytes) {
-                rows.add(new FolderSize(folder, cb[0], cb[1]));
-            }
-        }
+        subtreeTotals.forEach((folder, total) -> {
+            boolean isRoot = folder.equals(root);
+            if (isRoot || (!redundantAncestors.contains(folder) && total.bytes() >= minBytes))
+                rows.add(new FolderSize(folder, total.count(), total.bytes()));
+        });
         rows.sort(Comparator.comparingLong(FolderSize::bytes).reversed()
                 .thenComparing(fs -> fs.path().toString()));
         return rows;
-    }
-
-    // True when {@code child}'s recursive totals exactly match its parent's, marking the child as a
-    // redundant pass-through link the parent already represents. Parent totals can never be smaller
-    // than a child's, so equality means the parent adds nothing of its own.
-    private static boolean isPassThroughOf(long[] parent, long[] child) {
-        return parent != null && parent[0] == child[0] && parent[1] == child[1];
     }
 
     private void printRows(PrintStream out, List<FolderSize> rows) {

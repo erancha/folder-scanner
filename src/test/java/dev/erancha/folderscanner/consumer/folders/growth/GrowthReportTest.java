@@ -1,4 +1,6 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
+
+import dev.erancha.folderscanner.consumer.folders.FolderSize;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,7 +17,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for {@link GrowthReport}, the shared renderer of the two delta sections — "Folder growth
+ * Unit tests for GrowthReport, the shared renderer of the two delta sections — "Folder growth
  * since…" and "New folders since…" — used by both the scan path and the on-demand compare path.
  */
 final class GrowthReportTest {

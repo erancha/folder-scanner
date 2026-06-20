@@ -9,3 +9,4 @@ folder-sizes.tsv
 scripts/folders-growth.sh
 delete-files.sh
 scripts/**/folder-sizes/
+scripts/folders-growth/folder-sizes

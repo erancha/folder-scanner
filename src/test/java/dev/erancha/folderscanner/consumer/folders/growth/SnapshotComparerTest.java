@@ -1,4 +1,6 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
+
+import dev.erancha.folderscanner.consumer.folders.FolderSize;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,7 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit tests for {@link SnapshotComparer}, the on-demand compare path: it reads two stored dated
+ * Unit tests for SnapshotComparer, the on-demand compare path: it reads two stored dated
  * snapshots from the history directory and renders the growth / new-folder diff between them without
  * running a scan.
  */

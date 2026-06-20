@@ -8,7 +8,7 @@ import dev.erancha.folderscanner.consumer.aggregator.Aggregator;
 import dev.erancha.folderscanner.consumer.duplicates.DuplicateLocator;
 import dev.erancha.folderscanner.consumer.filemanager.FileManager;
 import dev.erancha.folderscanner.consumer.folders.FolderSizeReporter;
-import dev.erancha.folderscanner.consumer.folders.SnapshotComparer;
+import dev.erancha.folderscanner.consumer.folders.growth.SnapshotComparer;
 import dev.erancha.folderscanner.data.FileInfo;
 import dev.erancha.folderscanner.data.Format;
 import dev.erancha.folderscanner.producer.FolderScanner;

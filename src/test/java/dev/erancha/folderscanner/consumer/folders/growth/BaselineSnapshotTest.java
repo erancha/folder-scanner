@@ -1,4 +1,6 @@
-package dev.erancha.folderscanner.consumer.folders;
+package dev.erancha.folderscanner.consumer.folders.growth;
+
+import dev.erancha.folderscanner.consumer.folders.FolderSize;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -14,7 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
- * Unit tests for the baseline snapshot file: {@link BaselineSnapshot} writes the current folder
+ * Unit tests for the baseline snapshot file: BaselineSnapshot writes the current folder
  * sizes and the run timestamp as tab-delimited text and reads them back for the next run's diff.
  */
 final class BaselineSnapshotTest {
