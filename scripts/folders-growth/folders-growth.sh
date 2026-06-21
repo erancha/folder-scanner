@@ -17,12 +17,15 @@ FILES_EXTENSIONS="vhdx,jtl,log"
 case "${1:-}" in
   --help|-h)
     cat <<EOF
-Usage: $(basename "$0") [--cron|--help]
+Usage: $(basename "$0") [DRIVE...] | [--cron|--help]
 
-  (no args)  Scan /mnt/c, write today's baseline snapshot under folder-sizes/, and list
-             large files by date.
-  --cron     Install a crontab entry running this script every midnight, appending its
-             console output to folder-sizes/cron.log. Warns and does nothing if already set.
+  (no args)  Scan /mnt/c, write today's baseline snapshot under folder-sizes/c/, and
+             report day-over-day growth.
+  DRIVE...   Extra WSL drive letters to scan alongside c (e.g. "$(basename "$0") e" scans
+             /mnt/c and /mnt/e). Each drive keeps its own folder-sizes/<drive>/ snapshots.
+  --cron     Install a crontab entry running this script (drive c only) every midnight,
+             appending its console output to folder-sizes/cron.log. Warns and does nothing
+             if already set.
   --help     Show this help.
 EOF
     exit 0
@@ -52,8 +55,16 @@ esac
 printf '\n\n'
 echo "===== folders-growth run: $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
 
-# WSL mount of the Windows C: drive — the shell counterpart of the .cmd's c:/ root.
-scan() { java -jar "$JAR" --exclude="$EXCLUDE" --file-extensions="$FILES_EXTENSIONS" /mnt/c/ "$@"; }
+# WSL drive letters to scan under /mnt. Always c; any letters passed as arguments are scanned too.
+# Each drive writes its own dated <date>.tsv snapshots under folder-sizes/<drive>/, so same-day
+# snapshots never collide and growth is diffed per drive.
+DRIVES="c ${*:-}"
 
-scan --consumer=folders --min-size-recursive=50MB --baseline="$BASELINE_DIR"
-# scan --consumer=filemanager --min-size=100MB --sort=date
+scan() { java -jar "$JAR" --exclude="$EXCLUDE" --file-extensions="$FILES_EXTENSIONS" "$@"; }
+
+for DRIVE in $DRIVES; do
+  ROOT="/mnt/$DRIVE"
+  echo "----- scanning $ROOT/ -----"
+  scan "$ROOT/" --consumer=folders --min-size-recursive=50MB --baseline="$BASELINE_DIR/$DRIVE"
+  # scan "$ROOT/" --consumer=filemanager --min-size=100MB --sort=date
+done
