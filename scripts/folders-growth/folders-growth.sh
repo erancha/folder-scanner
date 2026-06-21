@@ -17,35 +17,43 @@ FILES_EXTENSIONS="vhdx,jtl,log"
 case "${1:-}" in
   --help|-h)
     cat <<EOF
-Usage: $(basename "$0") [DRIVE...] | [--cron|--help]
+Usage: $(basename "$0") [DRIVE...] | --cron [DRIVE...] | --help
 
-  (no args)  Scan /mnt/c, write today's baseline snapshot under folder-sizes/c/, and
-             report day-over-day growth.
-  DRIVE...   Extra WSL drive letters to scan alongside c (e.g. "$(basename "$0") e" scans
-             /mnt/c and /mnt/e). Each drive keeps its own folder-sizes/<drive>/ snapshots.
-  --cron     Install a crontab entry running this script (drive c only) every midnight,
-             appending its console output to folder-sizes/cron.log. Warns and does nothing
-             if already set.
-  --help     Show this help.
+  (no args)       Scan /mnt/c, write today's baseline snapshot under folder-sizes/c/, and
+                  report day-over-day growth.
+  DRIVE...        WSL drive letters to scan (e.g. "$(basename "$0") c e" scans /mnt/c and
+                  /mnt/e). Defaults to c. Each drive keeps its own folder-sizes/<drive>/
+                  snapshots.
+  --cron [DRIVE...]
+                  Install one midnight crontab entry per drive (defaults to c), each scanning
+                  only that drive and appending its console output to folder-sizes/<drive>/
+                  cron.log. Per drive: warns and leaves it unchanged if its job already exists,
+                  so "--cron c" then "--cron e" registers both.
+  --help          Show this help.
 EOF
     exit 0
     ;;
   --cron)
-    # Re-run this script at midnight, appending its console output to cron.log beside the snapshots;
-    # the .tsv baseline is still written by --baseline, untouched here. One job per script only.
-    if crontab -l 2>/dev/null | grep -qF "$SELF"; then
-      echo "Warning: a cron job for this script already exists; leaving it unchanged:" >&2
-      crontab -l 2>/dev/null | grep -F "$SELF" >&2
-      exit 0
-    fi
-    mkdir -p "$BASELINE_DIR"
-    LOG="$BASELINE_DIR/cron.log"
-    # mkdir runs before the redirect's target is opened, so a missing folder-sizes/ (e.g. fresh
-    # checkout) does not make cron fail before the scan can recreate it.
-    ENTRY="0 0 * * * mkdir -p \"$BASELINE_DIR\" && \"$SELF\" >> \"$LOG\" 2>&1"
-    { crontab -l 2>/dev/null || true; echo "$ENTRY"; } | crontab -
-    echo "Installed midnight cron job: $SELF"
-    echo "  console output -> $LOG"
+    # One single-drive midnight job per drive, each logging beside its own snapshots; the .tsv
+    # baseline is still written by --baseline during the run, untouched here.
+    shift
+    for DRIVE in ${*:-c}; do
+      DRIVE_DIR="$BASELINE_DIR/$DRIVE"
+      LOG="$DRIVE_DIR/cron.log"
+      # Keying the duplicate guard on the per-drive log path lets each drive register independently.
+      if crontab -l 2>/dev/null | grep -qF "$LOG"; then
+        echo "Warning: a cron job for drive $DRIVE already exists; leaving it unchanged:" >&2
+        crontab -l 2>/dev/null | grep -F "$LOG" >&2
+        continue
+      fi
+      mkdir -p "$DRIVE_DIR"
+      # mkdir runs before the redirect's target is opened, so a missing folder-sizes/<drive>/ (e.g.
+      # fresh checkout) does not make cron fail before the scan can recreate it.
+      ENTRY="0 0 * * * mkdir -p \"$DRIVE_DIR\" && \"$SELF\" $DRIVE >> \"$LOG\" 2>&1"
+      { crontab -l 2>/dev/null || true; echo "$ENTRY"; } | crontab -
+      echo "Installed midnight cron job for drive $DRIVE: $SELF $DRIVE"
+      echo "  console output -> $LOG"
+    done
     exit 0
     ;;
 esac
@@ -55,10 +63,10 @@ esac
 printf '\n\n'
 echo "===== folders-growth run: $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
 
-# WSL drive letters to scan under /mnt. Always c; any letters passed as arguments are scanned too.
-# Each drive writes its own dated <date>.tsv snapshots under folder-sizes/<drive>/, so same-day
-# snapshots never collide and growth is diffed per drive.
-DRIVES="c ${*:-}"
+# WSL drive letters to scan under /mnt, taken verbatim from the args (defaults to c). Each drive
+# writes its own dated <date>.tsv snapshots under folder-sizes/<drive>/, so same-day snapshots
+# never collide and growth is diffed per drive.
+DRIVES="${*:-c}"
 
 scan() { java -jar "$JAR" --exclude="$EXCLUDE" --file-extensions="$FILES_EXTENSIONS" "$@"; }
 
