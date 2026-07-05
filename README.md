@@ -71,3 +71,7 @@ forgotten script run hours later is hard to miss. On top of that, inspect the sc
 hard-delete path requires typing `DELETE` in capitals to proceed, and each duplicate group leaves the survivor as
 a commented `# KEPT` line so you can confirm the keeper. To keep the window small, run a generated script promptly
 and avoid mutating the scanned tree in between.
+
+## License
+
+Released under the MIT License. See [LICENSE](LICENSE).
