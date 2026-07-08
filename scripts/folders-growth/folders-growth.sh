@@ -75,4 +75,8 @@ for DRIVE in $DRIVES; do
   echo "----- scanning $ROOT/ -----"
   scan "$ROOT/" --consumer=folders --min-size-recursive=50MB --baseline="$BASELINE_DIR/$DRIVE"
   # scan "$ROOT/" --consumer=filemanager --min-size=100MB --sort=date
+  # Windows user profiles live only on C; report their large folders separately.
+  if [ "$DRIVE" = c ]; then
+    scan "$ROOT/Users" --consumer=folders --min-size-recursive=1GB
+  fi
 done
